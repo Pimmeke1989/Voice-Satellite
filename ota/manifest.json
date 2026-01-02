@@ -9,8 +9,8 @@
       "ota": {
         "md5": "34d914247347c014e835eb8c2bf48abe47bcb2534eb077bc15cfc40260f51057",
         "path": "lumitone-ota.bin",
-        "release_url": "https://github.com/Pimmeke1989/Voice-Satellite/releases/tag/2026.02.01",
-        "summary": "2026.02 - First OTA Ready"
+        "release_url": "https://github.com/Pimmeke1989/Voice-Satellite/releases/tag/2026.02.02",
+        "summary": "2026.02.02 - First Update"
       }
     }
   ]
