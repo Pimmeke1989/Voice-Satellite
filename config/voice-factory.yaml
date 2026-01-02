@@ -14,6 +14,12 @@ ota:
     id: ota_http_request
 
 http_request:
+  timeout: 30s
+  # Verklein de buffers om 'Out of buffer' errors te voorkomen
+  buffer_size: 512b  
+  # ESP32-S3 specifieke optimalisatie voor HTTPS
+  esp_idf_send_buffer_size: 512b
+  esp_idf_receive_buffer_size: 512b
 
 update:
   - platform: http_request
