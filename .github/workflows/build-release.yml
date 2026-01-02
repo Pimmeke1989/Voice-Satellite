@@ -4,7 +4,6 @@ on:
   release:
     types: [published]
 
-# Deze rechten zijn nodig om bestanden terug te mogen uploaden naar de release
 permissions:
   contents: write
 
@@ -16,28 +15,34 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # HIER ZAT DE FOUT: We gebruiken nu @v6 in plaats van @v4
-      - name: Build ESPHome Firmware
-        uses: esphome/build-action@v6
-        id: esphome_build
+      # 1. We installeren Python (de basis)
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          yaml_file: config/voice-factory.yaml
-          version: latest
+          python-version: '3.11'
 
-      # De output komt in de map 'config' te staan als 'voice-factory.bin'
-      # We verplaatsen hem naar de hoofdmap en noemen hem 'lumitone-ota.bin'
-      - name: Rename firmware
+      # 2. We installeren ESPHome handmatig (zo omzeilen we de 'deprecated' fout)
+      - name: Install ESPHome
+        run: pip install esphome
+
+      # 3. We voeren het compile commando direct uit
+      - name: Build Firmware
+        run: esphome compile config/voice-factory.yaml
+
+      # 4. We zoeken het gemaakte bestand en hernoemen het
+      # ESPHome verstopt de output diep in mappen, dus we gebruiken 'find' om hem te pakken
+      - name: Locate and Rename Firmware
         run: |
-          mv config/voice-factory.bin lumitone-ota.bin
-          echo "Firmware verplaatst en hernoemd naar lumitone-ota.bin"
+          find config/.esphome/build -name "firmware.bin" -exec mv {} lumitone-ota.bin \;
+          echo "Firmware gevonden en hernoemd naar lumitone-ota.bin"
 
-      # Print de MD5 hash voor je manifest.json
+      # 5. MD5 berekenen voor je manifest
       - name: Calculate MD5 checksum
         run: |
-          echo "Hier is je MD5 checksum voor de manifest:"
+          echo "Hier is je MD5 checksum:"
           md5sum lumitone-ota.bin
 
-      # Upload de file naar de Release pagina
+      # 6. Uploaden naar de Release
       - name: Upload Firmware to Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
