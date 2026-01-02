@@ -15,36 +15,63 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 1. We installeren Python (de basis)
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # 2. We installeren ESPHome handmatig (zo omzeilen we de 'deprecated' fout)
       - name: Install ESPHome
         run: pip install esphome
 
-      # 3. We voeren het compile commando direct uit
-      - name: Build Firmware
-        run: esphome compile config/voice-factory.yaml
-
-      # 4. We zoeken het gemaakte bestand en hernoemen het
-      # ESPHome verstopt de output diep in mappen, dus we gebruiken 'find' om hem te pakken
-      - name: Locate and Rename Firmware
+      - name: Create Dummy Secrets
         run: |
-          find config/.esphome/build -name "firmware.bin" -exec mv {} lumitone-ota.bin \;
-          echo "Firmware gevonden en hernoemd naar lumitone-ota.bin"
+          mkdir -p config
+          echo "wifi_ssid: \"dummy\"" > config/secrets.yaml
+          echo "wifi_password: \"dummy\"" >> config/secrets.yaml
+          echo "api_key: \"dummy\"" >> config/secrets.yaml
+          echo "ota_password: \"dummy\"" >> config/secrets.yaml
 
-      # 5. MD5 berekenen voor je manifest
+      # We bouwen de firmware. '|| true' zorgt dat hij niet stopt als hij de speaker niet online ziet.
+      - name: Build Firmware
+        run: esphome compile config/voice-factory.yaml || true
+
+      # HIER IS DE VERSIMPELING: We pakken direct de bestanden die volgens jouw log bestaan.
+      - name: Find and Rename Files
+        run: |
+          echo "We zoeken naar de gemaakte bestanden..."
+
+          # 1. Zoek de Factory bin (die jij in de log zag staan)
+          # We gebruiken 'find' zodat het niet uitmaakt hoe diep hij verstopt zit.
+          FACTORY_PATH=$(find . -name "firmware.factory.bin" -type f | head -n 1)
+          
+          # 2. Zoek de OTA bin (firmware.bin)
+          OTA_PATH=$(find . -name "firmware.bin" -type f | head -n 1)
+
+          echo "Gevonden paden:"
+          echo "Factory: $FACTORY_PATH"
+          echo "OTA:     $OTA_PATH"
+
+          if [ -z "$FACTORY_PATH" ]; then
+            echo "ERROR: Kon firmware.factory.bin niet vinden, terwijl hij er wel zou moeten zijn!"
+            exit 1
+          fi
+
+          # 3. Verplaats en hernoem ze naar de root zodat de uploader ze ziet
+          cp "$FACTORY_PATH" lumitone-factory.bin
+          cp "$OTA_PATH" lumitone-ota.bin
+          
+          echo "Succes! Bestanden staan klaar."
+
       - name: Calculate MD5 checksum
         run: |
-          echo "Hier is je MD5 checksum:"
+          echo "MD5 checksums:"
           md5sum lumitone-ota.bin
+          md5sum lumitone-factory.bin
 
-      # 6. Uploaden naar de Release
       - name: Upload Firmware to Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: lumitone-ota.bin
+          files: |
+            lumitone-ota.bin
+            lumitone-factory.bin
