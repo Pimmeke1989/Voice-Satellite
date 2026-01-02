@@ -16,8 +16,8 @@ ota:
 http_request:
   timeout: 30s
   # Dit zijn de juiste ESPHome benamingen voor de buffers
-  buffer_size_tx: 512b
-  buffer_size_rx: 512b
+  buffer_size_tx: 512
+  buffer_size_rx: 512
 
 update:
   - platform: http_request
@@ -27,7 +27,6 @@ update:
 
 dashboard_import:
   package_import_url: github://Pimmeke1989/Voice-Satellite/config/common/voice-base.yaml@main
-  import_full_config: true
 
 wifi:
   ap:
