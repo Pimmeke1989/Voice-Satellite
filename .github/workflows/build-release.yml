@@ -1,0 +1,41 @@
+name: Build LumiTone Firmware
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    name: Build Firmware
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Compileer de file die in de map 'config' staat
+      - name: Build ESPHome Firmware
+        uses: esphome/build-action@v4
+        id: esphome_build
+        with:
+          yaml_file: config/voice-factory.yaml
+          version: latest
+
+      # De output komt normaal naast de yaml te staan.
+      # We verplaatsen hem vanuit 'config/voice-factory.bin' naar de root als 'lumitone-ota.bin'
+      - name: Rename firmware
+        run: |
+          mv config/voice-factory.bin lumitone-ota.bin
+          echo "Firmware verplaatst en hernoemd naar lumitone-ota.bin"
+
+      # Print de MD5 hash zodat je die later in je manifest.json kunt zetten
+      - name: Calculate MD5 checksum
+        run: |
+          echo "Hier is je MD5 checksum:"
+          md5sum lumitone-ota.bin
+
+      # Upload de file naar de Release pagina (waar de manifest 'release_url' naar verwijst)
+      - name: Upload Firmware to Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: lumitone-ota.bin
