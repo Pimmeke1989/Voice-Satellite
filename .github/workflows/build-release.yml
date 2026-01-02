@@ -15,36 +15,49 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 1. We installeren Python (de basis)
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # 2. We installeren ESPHome handmatig (zo omzeilen we de 'deprecated' fout)
       - name: Install ESPHome
         run: pip install esphome
 
-      # 3. We voeren het compile commando direct uit
+      # Tijdelijke secrets aanmaken (zodat de compiler niet crasht)
+      - name: Create Dummy Secrets
+        run: |
+          echo "wifi_ssid: \"dummy_ssid\"" > config/secrets.yaml
+          echo "wifi_password: \"dummy_password\"" >> config/secrets.yaml
+          echo "api_key: \"dummy_key_123456\"" >> config/secrets.yaml
+          echo "ota_password: \"dummy_ota\"" >> config/secrets.yaml
+
       - name: Build Firmware
         run: esphome compile config/voice-factory.yaml
 
-      # 4. We zoeken het gemaakte bestand en hernoemen het
-      # ESPHome verstopt de output diep in mappen, dus we gebruiken 'find' om hem te pakken
+      # HIER IS DE WIJZIGING: We pakken nu beide bestanden
       - name: Locate and Rename Firmware
         run: |
+          # Zoek en hernoem de OTA file (voor updates)
           find config/.esphome/build -name "firmware.bin" -exec mv {} lumitone-ota.bin \;
-          echo "Firmware gevonden en hernoemd naar lumitone-ota.bin"
+          
+          # Zoek en hernoem de Factory file (voor eerste installatie)
+          # ESPHome noemt dit meestal firmware-factory.bin
+          find config/.esphome/build -name "firmware-factory.bin" -exec mv {} lumitone-factory.bin \;
+          
+          echo "Bestanden hernoemd."
 
-      # 5. MD5 berekenen voor je manifest
       - name: Calculate MD5 checksum
         run: |
-          echo "Hier is je MD5 checksum:"
+          echo "MD5 voor OTA (manifest):"
           md5sum lumitone-ota.bin
+          echo "MD5 voor Factory:"
+          md5sum lumitone-factory.bin
 
-      # 6. Uploaden naar de Release
+      # Upload BEIDE bestanden naar de Release
       - name: Upload Firmware to Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: lumitone-ota.bin
+          files: |
+            lumitone-ota.bin
+            lumitone-factory.bin
