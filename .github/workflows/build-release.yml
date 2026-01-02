@@ -20,9 +20,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install ESPHome & ESPTool
-        run: |
-          pip install esphome esptool
+      - name: Install ESPHome
+        run: pip install esphome
 
       - name: Create Dummy Secrets
         run: |
@@ -32,66 +31,42 @@ jobs:
           echo "api_key: \"dummy\"" >> config/secrets.yaml
           echo "ota_password: \"dummy\"" >> config/secrets.yaml
 
-      # We negeren de exit code (|| true) omdat hij vaak faalt op netwerk-checks na de build
+      # We bouwen de firmware. '|| true' zorgt dat hij niet stopt als hij de speaker niet online ziet.
       - name: Build Firmware
         run: esphome compile config/voice-factory.yaml || true
 
-      # HIER IS DE MAGIE: We zoeken overal en lijmen het zelf
-      - name: Find and Glue Files
+      # HIER IS DE VERSIMPELING: We pakken direct de bestanden die volgens jouw log bestaan.
+      - name: Find and Rename Files
         run: |
-          echo "--- DEBUG: We tonen de bestandsstructuur om te zien waar alles staat ---"
-          # We zoeken tot 4 mappen diep naar bin files om te zien waar ze zijn
-          find . -maxdepth 5 -name "*.bin"
-          echo "-----------------------------------------------------------------------"
+          echo "We zoeken naar de gemaakte bestanden..."
 
-          echo "We gaan de bestanden bij elkaar sprokkelen..."
+          # 1. Zoek de Factory bin (die jij in de log zag staan)
+          # We gebruiken 'find' zodat het niet uitmaakt hoe diep hij verstopt zit.
+          FACTORY_PATH=$(find . -name "firmware.factory.bin" -type f | head -n 1)
           
-          # Zoek de bestanden, ongeacht in welke submap ze zitten
-          # We sorteren op tijd (-t) en pakken de bovenste (head -1) om zeker te zijn dat we de nieuwste hebben
-          BOOTLOADER=$(find . -name "bootloader.bin" -type f | head -n 1)
-          PARTITIONS=$(find . -name "partitions.bin" -type f | head -n 1)
-          BOOT_APP0=$(find . -name "boot_app0.bin" -type f | head -n 1)
-          FIRMWARE=$(find . -name "firmware.bin" -type f | head -n 1)
+          # 2. Zoek de OTA bin (firmware.bin)
+          OTA_PATH=$(find . -name "firmware.bin" -type f | head -n 1)
 
-          echo "Gevonden puzzelstukjes:"
-          echo "1. Bootloader: $BOOTLOADER"
-          echo "2. Partitions: $PARTITIONS"
-          echo "3. Boot App0:  $BOOT_APP0"
-          echo "4. Firmware:   $FIRMWARE"
+          echo "Gevonden paden:"
+          echo "Factory: $FACTORY_PATH"
+          echo "OTA:     $OTA_PATH"
 
-          # Veiligheidscheck
-          if [ -z "$FIRMWARE" ]; then
-            echo "CRITISCH: Geen firmware.bin gevonden. De build is waarschijnlijk toch echt mislukt."
+          if [ -z "$FACTORY_PATH" ]; then
+            echo "ERROR: Kon firmware.factory.bin niet vinden, terwijl hij er wel zou moeten zijn!"
             exit 1
           fi
 
-          if [ -z "$BOOTLOADER" ] || [ -z "$PARTITIONS" ]; then
-             echo "WAARSCHUWING: Bootloader of partities niet gevonden. We kunnen geen Factory Image maken."
-             echo "We gaan alleen de OTA file uploaden."
-             cp "$FIRMWARE" lumitone-ota.bin
-             exit 0
-          fi
-
-          # Als we hier zijn, hebben we alles!
-          echo "Alles compleet! We maken de Factory Image..."
+          # 3. Verplaats en hernoem ze naar de root zodat de uploader ze ziet
+          cp "$FACTORY_PATH" lumitone-factory.bin
+          cp "$OTA_PATH" lumitone-ota.bin
           
-          cp "$FIRMWARE" lumitone-ota.bin
-
-          # Factory image samenstellen voor ESP32-S3
-          python3 -m esptool --chip esp32s3 merge_bin \
-            -o lumitone-factory.bin \
-            --flash_mode dio \
-            --flash_size 8MB \
-            0x0000 "$BOOTLOADER" \
-            0x8000 "$PARTITIONS" \
-            0xe000 "$BOOT_APP0" \
-            0x10000 "$FIRMWARE"
+          echo "Succes! Bestanden staan klaar."
 
       - name: Calculate MD5 checksum
         run: |
           echo "MD5 checksums:"
-          [ -f lumitone-ota.bin ] && md5sum lumitone-ota.bin
-          [ -f lumitone-factory.bin ] && md5sum lumitone-factory.bin
+          md5sum lumitone-ota.bin
+          md5sum lumitone-factory.bin
 
       - name: Upload Firmware to Release
         uses: softprops/action-gh-release@v2
