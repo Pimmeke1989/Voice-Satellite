@@ -18,7 +18,7 @@ http_request:
 update:
   - platform: http_request
     name: Firmware Update
-    update_interval: 30min
+    update_interval: 10min
     source: https://raw.githubusercontent.com/Pimmeke1989/Voice-Satellite/refs/heads/main/ota/manifest.json
 
 dashboard_import:
@@ -31,6 +31,8 @@ wifi:
   on_connect:
     - delay: 5s  # Gives time for improv results to be transmitted
     - script.execute: control_leds
+
+captive_portal:
 
 improv_serial:
 
