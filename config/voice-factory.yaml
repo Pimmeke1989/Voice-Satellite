@@ -37,7 +37,7 @@ update:
         - lambda: |-
             if (!id(ota_rebooted)) {
               id(ota_rebooted) = true;
-              ESP.restart();
+              esp_restart();
             }
 
 dashboard_import:
