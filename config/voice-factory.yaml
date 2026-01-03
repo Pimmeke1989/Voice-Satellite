@@ -14,16 +14,19 @@ ota:
     id: ota_http_request
 
 http_request:
-  timeout: 30s
-  # Dit zijn de juiste ESPHome benamingen voor de buffers
-  buffer_size_tx: 512
-  buffer_size_rx: 512
+  buffer_size_rx: 8192
+  buffer_size_tx: 8192
 
 update:
   - platform: http_request
     name: Firmware Update
     update_interval: 10min
     source: https://raw.githubusercontent.com/Pimmeke1989/Voice-Satellite/refs/heads/main/ota/manifest.json
+    on_update_available:
+      then:
+        - logger.log: "OTA available → rebooting into clean state"
+        - delay: 500ms
+        - restart
 
 dashboard_import:
   package_import_url: github://Pimmeke1989/Voice-Satellite/config/common/voice-base.yaml@main
