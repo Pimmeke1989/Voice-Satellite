@@ -29,16 +29,16 @@ update:
     name: Firmware Update
     update_interval: 10min
     source: https://raw.githubusercontent.com/Pimmeke1989/Voice-Satellite/refs/heads/main/ota/manifest.json
-    on_update_available:
-      then:
-        - logger.log: "OTA available → stopping audio and rebooting"
-        - micro_wake_word.stop
-        - delay: 500ms
-        - lambda: |-
-            if (!id(ota_rebooted)) {
-              id(ota_rebooted) = true;
-              esp_restart();
-            }
+    # on_update_available:
+    #   then:
+    #     - logger.log: "OTA available → stopping audio and rebooting"
+    #     - micro_wake_word.stop
+    #     - delay: 500ms
+    #     - lambda: |-
+    #         if (!id(ota_rebooted)) {
+    #           id(ota_rebooted) = true;
+    #           esp_restart();
+    #         }
 
 dashboard_import:
   package_import_url: github://Pimmeke1989/Voice-Satellite/config/common/voice-base.yaml@main
