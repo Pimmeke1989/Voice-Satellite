@@ -17,6 +17,13 @@ http_request:
   buffer_size_rx: 8192
   buffer_size_tx: 8192
 
+globals:
+  # Prevent reboot loops if OTA keeps failing
+  - id: ota_rebooted
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
 update:
   - platform: http_request
     name: Firmware Update
@@ -24,9 +31,14 @@ update:
     source: https://raw.githubusercontent.com/Pimmeke1989/Voice-Satellite/refs/heads/main/ota/manifest.json
     on_update_available:
       then:
-        - logger.log: "OTA available → rebooting into clean state"
+        - logger.log: "OTA available → stopping audio and rebooting"
+        - micro_wake_word.stop
         - delay: 500ms
-        - restart
+        - lambda: |-
+            if (!id(ota_rebooted)) {
+              id(ota_rebooted) = true;
+              ESP.restart();
+            }
 
 dashboard_import:
   package_import_url: github://Pimmeke1989/Voice-Satellite/config/common/voice-base.yaml@main
@@ -41,4 +53,3 @@ wifi:
 captive_portal:
 
 improv_serial:
-
