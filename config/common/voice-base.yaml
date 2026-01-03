@@ -34,7 +34,7 @@ dashboard_import:
 esphome:
   project: 
     name: pimmeke1989.LumiTone S1
-    version: 2026.02.04
+    version: 2026.02.05
   name: lumitone-s1
   friendly_name: LumiTone S1
   name_add_mac_suffix: true
@@ -606,65 +606,107 @@ light:
           name: "Listening"
           update_interval: 30ms
           lambda: |-
+            // Listening effect (linear strip)
+            // Soft breathing blue + moving highlight
+            // Global brightness capped at 65%
+
             static uint8_t breathe_step = 0;
-            static bool breathe_increasing = true;
-            static int scan_pos = 0;
-            static int scan_dir = 1;
+            static bool breathe_down = true;
+
+            static int pos = 0;
+            static int dir = 1;
+
+            const uint8_t breathe_steps = 24;
+
+            // 65% brightness cap
+            const uint8_t MAX_BRIGHTNESS = 166;   // 255 * 0.65 ≈ 166
+
+            // Background breathe range (within 65%)
+            const uint8_t base_min = 30;           // ~18%
+            const uint8_t base_max = 100;          // ~39%
+
+            const uint8_t highlight_width = 4;
+            const uint8_t highlight_boost = 90;    // extra, but still capped
+
+            // Listening blue
+            const Color blue(0, 40, 255);
 
             if (initial_run) {
               breathe_step = 0;
-              breathe_increasing = true;
-              scan_pos = 0;
-              scan_dir = 1;
+              breathe_down = true;
+              pos = 0;
+              dir = 1;
             }
 
-            // Instellingen voor kleur en helderheid
-            Color base_color(0, 40, 255); // "Listening Blue"
-            uint8_t max_brightness = 166; // Cap op 65% (255 * 0.65)
+            // 1) Breathing brightness
+            uint8_t base_bri = base_min +
+              (uint8_t)((base_max - base_min) * (float)breathe_step / (float)breathe_steps);
 
-            // 1. Bereken de 'ademende' achtergrondsterkte (tussen 30 en 100)
-            // We gebruiken 24 stappen voor de ademhaling
-            uint8_t bg_brightness = 30 + (uint8_t)(70.0f * breathe_step / 24.0f);
+            // 2) Move highlight (ping-pong)
+            pos += dir;
+            if (pos <= 0) { pos = 0; dir = 1; }
+            if (pos >= (int)it.size() - 1) { pos = (int)it.size() - 1; dir = -1; }
+
+            // 3) Render strip
+            for (int i = 0; i < (int)it.size(); i++) {
+              uint16_t bri = base_bri;
+
+              int dist = i - pos;
+              if (dist < 0) dist = -dist;
+
+              if (dist < highlight_width) {
+                uint8_t factor = (uint8_t)((highlight_width - dist) * 255 / highlight_width);
+                bri += (uint16_t)((highlight_boost * factor) / 255);
+              }
+
+              // Hard cap at 65%
+              if (bri > MAX_BRIGHTNESS) bri = MAX_BRIGHTNESS;
+
+              it[i] = blue * (uint8_t)bri;
+            }
+
+            // 4) Update breathing
+            if (breathe_down) {
+              if (breathe_step < breathe_steps) breathe_step++;
+              else breathe_down = false;
+            } else {
+              if (breathe_step > 0) breathe_step--;
+              else breathe_down = true;
+            }
+
+      - addressable_lambda:
+          name: "Candle"
+          update_interval: 80ms
+          lambda: |-
+            static uint8_t heat[20];
+            
+            // Initialiseer de 'hitte' van de lampjes op een gemiddelde waarde
+            if (initial_run) {
+              for (int i = 0; i < 20; i++) {
+                heat[i] = 150;
+              }
+            }
 
             for (int i = 0; i < it.size(); i++) {
-              uint16_t pixel_bri = bg_brightness;
+              // 1. Willekeurige flikkering (Random Walk)
+              // We voegen een getal tussen -20 en +20 toe aan de huidige hitte
+              int flicker = (random() % 41) - 20; 
+              int new_heat = heat[i] + flicker;
 
-              // 2. Bereken de highlight (Scanner)
-              int dist = abs(i - scan_pos);
+              // 2. Begrenzing (Clamping)
+              // Zorg dat het niet te donker wordt (kooltje gaat uit) en niet te fel
+              if (new_heat < 60) new_heat = 60;   // Minimaal smeulend rood
+              if (new_heat > 255) new_heat = 255; // Maximaal fel oranje
               
-              // Als de scanner dichtbij is (binnen 4 leds), maak deze led feller
-              if (dist < 4) {
-                // Hoe dichterbij, hoe feller (max +90 helderheid erbij)
-                pixel_bri += (90 * (4 - dist) / 4);
-              }
+              // Sla de nieuwe waarde op voor de volgende ronde
+              heat[i] = new_heat;
 
-              // 3. Beveiliging: Begrens de maximale helderheid
-              if (pixel_bri > max_brightness) {
-                pixel_bri = max_brightness;
-              }
-
-              // Pas de kleur toe
-              it[i] = base_color * (pixel_bri / 255.0f);
+              // 3. Kleur berekening
+              // Rood = De basis (de hitte zelf)
+              // Groen = Hitte gedeeld door 3 (dit zorgt voor de Oranje tint)
+              // Blauw = 0 (we willen geen koud licht)
+              it[i] = Color(new_heat, new_heat / 3, 0);
             }
-
-            // 4. Update de tellers voor de volgende ronde
-            
-            // Ademhaling logic
-            if (breathe_increasing) {
-              breathe_step++;
-              if (breathe_step >= 24) breathe_increasing = false;
-            } else {
-              breathe_step--;
-              if (breathe_step <= 0) breathe_increasing = true;
-            }
-
-            // Scanner logic (Ping-Pong beweging)
-            scan_pos += scan_dir;
-            if (scan_pos >= (it.size() - 1) || scan_pos <= 0) {
-              scan_dir = -scan_dir;
-            }
-
-
 
   # User facing LED ring. Remapping of the internal LEDs. 
   # Exposed to be used by the user.
@@ -703,6 +745,10 @@ light:
           lambda: return;
       - lambda:
           name: "Slow Pulse"
+          update_interval: 0s
+          lambda: return;
+      - lambda:
+          name: "Candle"
           update_interval: 0s
           lambda: return;
 
@@ -1534,6 +1580,7 @@ select:
       - "Twinkle"
       - "Slow Pulse"
       - "None"
+      - "Candle"
     on_value:
       # Als je in HA een ander effect kiest terwijl de lamp al AAN staat,
       # pas het dan direct toe.
