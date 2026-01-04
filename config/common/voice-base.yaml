@@ -21,20 +21,15 @@ substitutions:
   mute_switch_off_sound_file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/mute_switch_off.flac
   timer_finished_sound_file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/timer_finished.flac
   wake_word_triggered_sound_file: https://github.com/Pimmeke1989/Voice-Satellite/raw/main/config/wake_word_triggered.wav
-
   factory_reset_initiated_sound_file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/factory_reset_initiated.mp3
   factory_reset_cancelled_sound_file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/factory_reset_cancelled.mp3
   factory_reset_confirmed_sound_file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/factory_reset_confirmed.mp3
   error_cloud_expired_sound_file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/error_cloud_expired.mp3
-
-dashboard_import:
-  package_import_url: github://Pimmeke1989/Voice-Satellite/config/common/voice-base.yaml@main
-  import_full_config: true
   
 esphome:
   project: 
     name: pimmeke1989.LumiTone S1
-    version: 2026.02.05
+    version: 2026.1.1
   name: lumitone-s1
   friendly_name: LumiTone S1
   name_add_mac_suffix: true
@@ -235,9 +230,9 @@ time:
   - platform: homeassistant
     id: homeassistant_time
     on_time:
-      # Every 1 minute
+      # Every 5 minute
       - seconds: 0
-        minutes: /1
+        minutes: /5
         then:
           - script.execute: check_alarm
     on_time_sync:
@@ -312,14 +307,7 @@ switch:
             lambda: return id(mute_state).state;
           then:
             - switch.turn_on: mute_toggle
-  # Button click Sounds Switch.
-  - platform: template
-    id: button_sound
-    name: Button click sounds
-    icon: "mdi:bullhorn"
-    entity_category: config
-    optimistic: true
-    restore_mode: RESTORE_DEFAULT_ON
+
   # Mute Sound Switch.
   - platform: template
     id: mute_sound
@@ -721,19 +709,16 @@ light:
     entity_category: config
     restore_mode: RESTORE_DEFAULT_OFF
     
-    # Als de lamp aangaat:
     on_turn_on:
       - light.turn_on:
           id: led_ring
           effect: !lambda return id(default_idle_effect).state;
       - script.execute: control_leds
     
-    # Als de lamp uitgaat:
     on_turn_off:
       - script.execute: control_leds
 
-    # Hier definiëren we de effecten zodat HA ze ziet.
-    # We doen er niets mee in deze lamp (return), maar het script leest de naam uit.
+    #Effects shown in HA
     effects:
       - lambda:
           name: "Rainbow"
@@ -741,10 +726,6 @@ light:
           lambda: return;
       - lambda:
           name: "Twinkle"
-          update_interval: 0s
-          lambda: return;
-      - lambda:
-          name: "Slow Pulse"
           update_interval: 0s
           lambda: return;
       - lambda:
@@ -947,7 +928,6 @@ script:
           condition:
             light.is_on: led_ring
           then:
-            # De ring moet AAN staan: Kopieer instellingen direct over
             - if:
                 condition:
                   lambda: 'return id(led_ring).get_effect_name() != "None";'
@@ -965,7 +945,6 @@ script:
                       blue: !lambda return id(led_ring).current_values.get_blue();
                       effect: "None"
           else:
-            # De ring moet UIT staan:
             - light.turn_off: voice_assistant_leds
 
   # NEW - Script for Waiting after Wake Word
@@ -988,11 +967,11 @@ script:
       - light.turn_on:
           id: voice_assistant_leds
           brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.5f );
-          # red: !lambda return id(led_ring).current_values.get_red();
-          # green: !lambda return id(led_ring).current_values.get_green();
-          # blue: !lambda return id(led_ring).current_values.get_blue();
-          # effect: "Scan Fast"
-          effect: "Listening"
+          red: !lambda return id(led_ring).current_values.get_red();
+          green: !lambda return id(led_ring).current_values.get_green();
+          blue: !lambda return id(led_ring).current_values.get_blue();
+          effect: "Scan Fast"
+          # effect: "Listening"
 
   # Script executed when the voice assistant is thinking to a command
   # The spin stops and the 2 LEDs that are currently on and blinking indicating the commend is being processed.
@@ -1167,6 +1146,11 @@ script:
   #   This allows us to prevent having the deactivation of the stop word before its own activation.
   - id: activate_stop_word_once
     then:
+      - wait_until:
+          condition:
+            media_player.is_announcing:
+              id: external_media_player
+          timeout: 5s
       - delay: 1s
       # Enable stop wake word
       - if:
@@ -1491,7 +1475,7 @@ external_components:
       # https://github.com/esphome/esphome/pull/12429
       type: git
       url: https://github.com/esphome/esphome
-      ref: 627572d9aa0c372f4ca8adcbdaf68c1c2e65b84c
+      ref: f5c1a8111df78e32d07d7a7bb800018808cdc0e7
     refresh: 0s
     components: [file, http_request, media_source, speaker_source]
 
@@ -1578,7 +1562,6 @@ select:
     options:
       - "Rainbow"
       - "Twinkle"
-      - "Slow Pulse"
       - "None"
       - "Candle"
     on_value:

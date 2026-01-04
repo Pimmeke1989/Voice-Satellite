@@ -1,7 +1,4 @@
 packages:
-  # This is an inline package to prefix the on_client_connected with the wait_until action
-  # It must appear before the actual package so it becomes the orignal config and the
-  # on_client_connected list from the package config is appended onto this one.
   remote_package:
     url: https://github.com/Pimmeke1989/Voice-Satellite
     ref: main
@@ -17,28 +14,11 @@ http_request:
   buffer_size_rx: 8192
   buffer_size_tx: 8192
 
-globals:
-  # Prevent reboot loops if OTA keeps failing
-  - id: ota_rebooted
-    type: bool
-    restore_value: no
-    initial_value: 'false'
-
 update:
   - platform: http_request
     name: Firmware Update
     update_interval: 10min
     source: https://raw.githubusercontent.com/Pimmeke1989/Voice-Satellite/refs/heads/main/ota/manifest.json
-    # on_update_available:
-    #   then:
-    #     - logger.log: "OTA available → stopping audio and rebooting"
-    #     - micro_wake_word.stop
-    #     - delay: 500ms
-    #     - lambda: |-
-    #         if (!id(ota_rebooted)) {
-    #           id(ota_rebooted) = true;
-    #           esp_restart();
-    #         }
 
 dashboard_import:
   package_import_url: github://Pimmeke1989/Voice-Satellite/config/common/voice-base.yaml@main
@@ -47,9 +27,27 @@ wifi:
   ap:
     ssid: "LumiTone S1"
   on_connect:
-    - delay: 5s  # Gives time for improv results to be transmitted
+    - delay: 5s 
     - script.execute: control_leds
 
 captive_portal:
 
 improv_serial:
+
+switch:
+  - platform: template
+    id: beta_firmware
+    name: Beta firmware
+    icon: "mdi:test-tube"
+    disabled_by_default: true
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_on:
+      - logger.log: "OTA updates set to use Beta firmware"
+      - lambda: id(update_http_request).set_source_url("https://raw.githubusercontent.com/Pimmeke1989/Voice-Satellite/refs/heads/main/ota/manifest-beta.json");
+      - component.update: update_http_request
+    on_turn_off:
+      - logger.log: "OTA updates set to use Production firmware"
+      - lambda: id(update_http_request).set_source_url("https://raw.githubusercontent.com/Pimmeke1989/Voice-Satellite/refs/heads/main/ota/manifest.json");
+      - component.update: update_http_request
