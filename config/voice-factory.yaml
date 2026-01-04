@@ -17,6 +17,7 @@ http_request:
 update:
   - platform: http_request
     name: Firmware Update
+    id: update_http_request
     update_interval: 10min
     source: https://raw.githubusercontent.com/Pimmeke1989/Voice-Satellite/refs/heads/main/ota/manifest.json
 
