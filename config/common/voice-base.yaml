@@ -29,7 +29,7 @@ substitutions:
 esphome:
   project: 
     name: pimmeke1989.LumiTone S1
-    version: 2026.1.1
+    version: 2026.1.2
   name: lumitone-s1
   friendly_name: LumiTone S1
   name_add_mac_suffix: true
@@ -232,7 +232,7 @@ time:
     on_time:
       # Every 5 minute
       - seconds: 0
-        minutes: /5
+        minutes: /1
         then:
           - script.execute: check_alarm
     on_time_sync:
