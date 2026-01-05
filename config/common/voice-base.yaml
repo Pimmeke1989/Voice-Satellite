@@ -695,6 +695,146 @@ light:
               // Blauw = 0 (we willen geen koud licht)
               it[i] = Color(new_heat, new_heat / 3, 0);
             }
+      
+    # NEW Beta Status Animations
+      - addressable_lambda:
+          name: "Waiting Breathe"
+          update_interval: 20ms
+          lambda: |-
+            static float progress = 0.0;
+            static int direction = 1;
+            
+            // Haal de user color op
+            auto user_c = id(led_ring).current_values;
+            Color c(user_c.get_red()*255, user_c.get_green()*255, user_c.get_blue()*255);
+            
+            // Als de kleur zwart/uit is, pak een fallback (bijv. Wit)
+            if (c.r == 0 && c.g == 0 && c.b == 0) c = Color(200, 200, 200);
+
+            // Sine-wave benadering voor soepel ademen (tussen 10% en 100% helderheid)
+            float intensity = 0.1 + (0.9 * progress);
+            
+            for (int i = 0; i < it.size(); i++) {
+               it[i] = c * intensity;
+            }
+
+            // Langzaam heen en weer
+            // Pas 0.01 aan om sneller/langzamer te ademen
+            progress += (0.01 * direction);
+            if (progress >= 1.0) { progress = 1.0; direction = -1; }
+            if (progress <= 0.0) { progress = 0.0; direction = 1; }
+        
+      - addressable_lambda:
+          name: "Listening Scanner"
+          update_interval: 30ms
+          lambda: |-
+            static float pos = 0.0;
+            static int direction = 1;
+            
+            auto user_c = id(led_ring).current_values;
+            Color c(user_c.get_red()*255, user_c.get_green()*255, user_c.get_blue()*255);
+            if (c.r == 0 && c.g == 0 && c.b == 0) c = Color(0, 0, 255); // Fallback Blauw
+
+            // Fade alles een klein beetje uit (trail effect)
+            for (int i = 0; i < it.size(); i++) {
+              it[i] *= 0.7;
+            }
+
+            // Bereken posities
+            int led_count = it.size();
+            int pos_1 = (int)pos;
+            int pos_2 = led_count - 1 - pos_1; // De spiegeling
+
+            // Teken de twee ogen
+            if (pos_1 >= 0 && pos_1 < led_count) it[pos_1] = c;
+            if (pos_2 >= 0 && pos_2 < led_count) it[pos_2] = c;
+
+            // Beweging
+            pos += (0.25 * direction); // Snelheid
+            if (pos >= led_count - 1) direction = -1;
+            if (pos <= 0) direction = 1;
+
+      - addressable_lambda:
+          name: "Thinking Heartbeat"
+          update_interval: 20ms
+          lambda: |-
+            static float time_counter = 0.0;
+            
+            auto user_c = id(led_ring).current_values;
+            Color c(user_c.get_red()*255, user_c.get_green()*255, user_c.get_blue()*255);
+            if (c.r == 0 && c.g == 0 && c.b == 0) c = Color(255, 0, 255); // Fallback Paars
+
+            // Wiskundige formule voor hartslag (Gaussian pulsen)
+            // t loopt van 0 tot 10
+            float x = time_counter;
+            float brightness = 0.0;
+
+            // Eerste slag (rond t=1.5)
+            float beat1 = exp(-pow(x - 1.5, 2) / 0.3);
+            // Tweede slag (rond t=3.5, iets zachter)
+            float beat2 = 0.6 * exp(-pow(x - 3.5, 2) / 0.3);
+            
+            brightness = beat1 + beat2 + 0.05; // 0.05 is basis gloed
+            if (brightness > 1.0) brightness = 1.0;
+
+            for (int i = 0; i < it.size(); i++) {
+              it[i] = c * brightness;
+            }
+
+            // Tijd loop
+            time_counter += 0.15; // Snelheid van de hartslag
+            if (time_counter > 10.0) time_counter = 0.0; // Reset na de rustpauze
+
+      - addressable_lambda:
+          name: "Replying Gravcenter"
+          update_interval: 20ms
+          lambda: |-
+            auto user_c = id(led_ring).current_values;
+            Color c(user_c.get_red()*255, user_c.get_green()*255, user_c.get_blue()*255);
+            if (c.r == 0 && c.g == 0 && c.b == 0) c = Color(0, 255, 0); // Fallback Groen
+
+            // 1. Fade alles uit (zorgt voor de staartjes achter de vallende pixels)
+            for (int i = 0; i < it.size(); i++) {
+              it[i] *= 0.85; 
+            }
+
+            // 2. Elke zoveel tijd spawnen we nieuwe pixels aan de "achterkant" (verst van midden)
+            // Midden = led 0. Achterkant = led 10 (bij 20 leds).
+            static int spawn_timer = 0;
+            spawn_timer++;
+            
+            if (spawn_timer > 5) { // Hoe lager, hoe meer pixels
+               spawn_timer = 0;
+               // Spawn willekeurig links of rechts van de 'achterkant'
+               if (random() % 2 == 0) it[9] = c; 
+               else                   it[11] = c;
+            }
+
+            // 3. Zwaartekracht simulatie (schuif pixels naar 0 toe)
+            // We doen dit simpel door pixels door te schuiven richting index 0
+            
+            static int move_timer = 0;
+            move_timer++;
+            if (move_timer > 2) { // Snelheid van vallen
+              move_timer = 0;
+              
+              // Linkerkant: 1 t/m 9 schuiven naar 0
+              for (int i = 0; i < 9; i++) {
+                 // Mix huidige pixel met de pixel die er 'boven' zat
+                 if (it[i+1].get_brightness() > 0) it[i] = it[i+1];
+              }
+              // Rechterkant: 19 t/m 11 schuiven naar 0 (dus 19->0, 18->19 etc is lastig op ring)
+              // We schuiven 11->12->...->19->0
+              for (int i = 0; i < 9; i++) {
+                 // Mapping is lastig in loop, we doen het hardcoded voor de ring-topologie:
+                 // 19 pakt van 18, 18 van 17...
+                 int target = (20 - i) % 20; // 0, 19, 18...
+                 int source = (20 - i - 1);  // 19, 18, 17...
+                 if (target == 0) continue; // 0 wordt al gevuld door linkerkant, laat botsen
+                 
+                 if (it[source].get_brightness() > 0) it[target] = it[source];
+              }
+            }
 
   # User facing LED ring. Remapping of the internal LEDs. 
   # Exposed to be used by the user.
@@ -958,11 +1098,12 @@ script:
       - light.turn_on:
           id: voice_assistant_leds
           # Deze regels zijn noodzakelijk om te synchroniseren met jouw instelling
-          brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.5f );
-          red: !lambda return id(led_ring).current_values.get_red();
-          green: !lambda return id(led_ring).current_values.get_green();
-          blue: !lambda return id(led_ring).current_values.get_blue();
-          effect: "Scan Slow"
+          # brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.5f );
+          # red: !lambda return id(led_ring).current_values.get_red();
+          # green: !lambda return id(led_ring).current_values.get_green();
+          # blue: !lambda return id(led_ring).current_values.get_blue();
+          # effect: "Scan Slow"
+          effect: "Waiting Breathe"
 
   # NEW - Script for Listening to command
   # NEW - Uses Scan Fast
@@ -970,12 +1111,12 @@ script:
     then:
       - light.turn_on:
           id: voice_assistant_leds
-          brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.5f );
-          red: !lambda return id(led_ring).current_values.get_red();
-          green: !lambda return id(led_ring).current_values.get_green();
-          blue: !lambda return id(led_ring).current_values.get_blue();
-          effect: "Scan Fast"
-          # effect: "Listening"
+          # brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.5f );
+          # red: !lambda return id(led_ring).current_values.get_red();
+          # green: !lambda return id(led_ring).current_values.get_green();
+          # blue: !lambda return id(led_ring).current_values.get_blue();
+          # effect: "Scan Fast"
+          effect: "Listening Scanner"
 
   # Script executed when the voice assistant is thinking to a command
   # The spin stops and the 2 LEDs that are currently on and blinking indicating the commend is being processed.
@@ -984,7 +1125,8 @@ script:
       - light.turn_on:
           brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
           id: voice_assistant_leds
-          effect: "Thinking"
+          # effect: "Thinking"
+          effect: "Thinking Heartbeat"
 
   # NEW - Script for Replying to command
   # NEW - Uses Scan Fast
@@ -992,11 +1134,12 @@ script:
     then:
       - light.turn_on:
           id: voice_assistant_leds
-          brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.5f );
-          red: 100%
-          green: 77%
-          blue: 56%
-          effect: "Scan Fast"
+          # brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.5f );
+          # red: 100%
+          # green: 77%
+          # blue: 56%
+          # effect: "Scan Fast"
+          effect: "Replying Gravcenter"
 
   # Script executed when the voice assistant is in error
   # Fast Red Pulse
