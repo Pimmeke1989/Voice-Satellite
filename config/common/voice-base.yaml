@@ -888,7 +888,7 @@ script:
           effect: "Twinkle"
 
   # Script executed during initialization
-  # Blue Twinkle if Wifi is connected, Else rainbow
+  # Green Twinkle if Wifi is connected, Blue Twinkle
   - id: control_leds_init_state
     then:
       - if:
@@ -897,15 +897,19 @@ script:
           then:
             - light.turn_on:
                 brightness: 50%
+                red: 0%
+                green: 100%
+                blue: 20%
+                id: voice_assistant_leds
+                effect: "Twinkle"
+          else:
+            - light.turn_on:
+                brightness: 50%
                 red: 9%
                 green: 73%
                 blue: 95%
                 id: voice_assistant_leds
                 effect: "Twinkle"
-          else:
-            - light.turn_on:
-                id: voice_assistant_leds
-                effect: "Rainbow"
 
   # Script executed when the device has no connection to Home Assistant
   # Red Twinkle (This will be visible during HA updates for example)
