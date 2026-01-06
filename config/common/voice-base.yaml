@@ -701,86 +701,93 @@ light:
           name: "Waiting Breathe"
           update_interval: 20ms
           lambda: |-
-            static float progress = 0.0;
-            static int direction = 1;
-            
-            // Haal de user color op
+            static float phase = 0.0;
+
             auto user_c = id(led_ring).current_values;
             Color c(user_c.get_red()*255, user_c.get_green()*255, user_c.get_blue()*255);
-            
-            // Als de kleur zwart/uit is, pak een fallback (bijv. Wit)
-            if (c.r == 0 && c.g == 0 && c.b == 0) c = Color(200, 200, 200);
+            if (c.r == 0 && c.g == 0 && c.b == 0)
+              c = Color(200, 200, 200);
 
-            // Sine-wave benadering
-            float intensity = 0.1 + (0.9 * progress);
-            
+            // Echte sinus-breathe
+            float intensity = 0.15 + 0.85 * (0.5 - 0.5 * cos(phase));
+
             for (int i = 0; i < it.size(); i++) {
-               it[i] = c * intensity;
+              it[i] = c * intensity;
             }
 
-            // Langzaam heen en weer
-            progress += (0.01 * direction);
-            if (progress >= 1.0) { progress = 1.0; direction = -1; }
-            if (progress <= 0.0) { progress = 0.0; direction = 1; }
-        
+            phase += 0.04;
+            if (phase > 2 * M_PI) phase -= 2 * M_PI;
+
+
       - addressable_lambda:
           name: "Listening Scanner"
           update_interval: 30ms
           lambda: |-
             static float pos = 0.0;
             static int direction = 1;
-            
+
             auto user_c = id(led_ring).current_values;
             Color c(user_c.get_red()*255, user_c.get_green()*255, user_c.get_blue()*255);
-            if (c.r == 0 && c.g == 0 && c.b == 0) c = Color(0, 0, 255); // Fallback Blauw
+            if (c.r == 0 && c.g == 0 && c.b == 0)
+              c = Color(0, 0, 255);
 
-            // FIX: Fade alles uit met .get()
+            // Harmonized fade
             for (int i = 0; i < it.size(); i++) {
-              it[i] = it[i].get() * 0.7;
+              it[i] = it[i].get() * 0.75;
             }
 
-            // Bereken posities
-            int led_count = it.size();
-            int pos_1 = (int)pos;
-            int pos_2 = led_count - 1 - pos_1; // De spiegeling
+            int count = it.size();
+            int p1 = (int) pos;
+            int p2 = count - 1 - p1;
 
-            // Teken de twee ogen
-            if (pos_1 >= 0 && pos_1 < led_count) it[pos_1] = c;
-            if (pos_2 >= 0 && pos_2 < led_count) it[pos_2] = c;
+            if (p1 >= 0 && p1 < count) {
+              it[p1] = c;
+              if (p1 > 0) it[p1 - 1] = c * 0.3;
+              if (p1 < count - 1) it[p1 + 1] = c * 0.3;
+            }
 
-            // Beweging
-            pos += (0.25 * direction); 
-            if (pos >= led_count - 1) direction = -1;
-            if (pos <= 0) direction = 1;
+            if (p2 >= 0 && p2 < count) {
+              it[p2] = c;
+              if (p2 > 0) it[p2 - 1] = c * 0.3;
+              if (p2 < count - 1) it[p2 + 1] = c * 0.3;
+            }
+
+            pos += 0.3 * direction;
+
+            if (pos >= count - 1) {
+              pos = count - 1;
+              direction = -1;
+            }
+            if (pos <= 0) {
+              pos = 0;
+              direction = 1;
+            }
+
 
       - addressable_lambda:
           name: "Thinking Heartbeat"
           update_interval: 20ms
           lambda: |-
-            static float time_counter = 0.0;
-            
+            static float t = 0.0;
+
             auto user_c = id(led_ring).current_values;
             Color c(user_c.get_red()*255, user_c.get_green()*255, user_c.get_blue()*255);
-            if (c.r == 0 && c.g == 0 && c.b == 0) c = Color(255, 0, 255); // Fallback Paars
+            if (c.r == 0 && c.g == 0 && c.b == 0)
+              c = Color(255, 0, 255);
 
-            float x = time_counter;
-            float brightness = 0.0;
-
-            // Eerste slag (rond t=1.5)
-            float beat1 = exp(-pow(x - 1.5, 2) / 0.3);
-            // Tweede slag (rond t=3.5, iets zachter)
-            float beat2 = 0.6 * exp(-pow(x - 3.5, 2) / 0.3);
-            
-            brightness = beat1 + beat2 + 0.05; 
+            // Hartslagpulsen
+            float beat1 = exp(-pow(t - 1.4, 2) / 0.25);
+            float beat2 = 0.6 * exp(-pow(t - 3.2, 2) / 0.35);
+            float brightness = beat1 + beat2 + 0.05;
             if (brightness > 1.0) brightness = 1.0;
 
             for (int i = 0; i < it.size(); i++) {
               it[i] = c * brightness;
             }
 
-            // Tijd loop
-            time_counter += 0.15; 
-            if (time_counter > 10.0) time_counter = 0.0; 
+            t += 0.12;
+            if (t > 8.0) t = 0.0;
+
 
       - addressable_lambda:
           name: "Replying Gravcenter"
@@ -788,53 +795,42 @@ light:
           lambda: |-
             auto user_c = id(led_ring).current_values;
             Color c(user_c.get_red()*255, user_c.get_green()*255, user_c.get_blue()*255);
-            if (c.r == 0 && c.g == 0 && c.b == 0) c = Color(0, 255, 0); // Fallback Groen
+            if (c.r == 0 && c.g == 0 && c.b == 0)
+              c = Color(0, 255, 0);
 
-            // FIX: Fade alles uit met .get()
+            // Harmonized fade
             for (int i = 0; i < it.size(); i++) {
-              it[i] = it[i].get() * 0.85; 
+              it[i] = it[i].get() * 0.8;
             }
 
-            // Nieuwe pixels spawnen
+            // Spawn rond centrum (9 & 10)
             static int spawn_timer = 0;
             spawn_timer++;
-            
-            if (spawn_timer > 5) { 
-               spawn_timer = 0;
-               // Hardcoded index check voor veiligheid
-               if (it.size() > 11) {
-                   if (random() % 2 == 0) it[9] = c; 
-                   else                   it[11] = c;
-               }
+            if (spawn_timer > 6) {
+              spawn_timer = 0;
+              if (random() % 2 == 0) it[9] = c;
+              else                  it[10] = c;
             }
 
-            // Zwaartekracht simulatie
+            // Zwaartekracht – links naar 0
             static int move_timer = 0;
             move_timer++;
-            if (move_timer > 2) { 
+            if (move_timer > 2) {
               move_timer = 0;
-              
-              // Linkerkant: 1 t/m 9 schuiven naar 0
+
               for (int i = 0; i < 9; i++) {
-                 // FIX: Check of buurman aan staat via Color object, niet get_brightness()
-                 Color neighbor = it[i+1].get();
-                 if ((neighbor.r + neighbor.g + neighbor.b) > 0) {
-                     // FIX: Wijs waarde toe met .get()
-                     it[i] = neighbor;
-                 }
+                Color n = it[i + 1].get();
+                if ((n.r + n.g + n.b) > 0) {
+                  it[i] = n;
+                }
               }
-              
-              // Rechterkant
-              for (int i = 0; i < 9; i++) {
-                 int target = (20 - i) % 20; 
-                 int source = (20 - i - 1);  
-                 if (target == 0) continue; 
-                 
-                 // FIX: Check buurman en assign met .get()
-                 Color neighbor = it[source].get();
-                 if ((neighbor.r + neighbor.g + neighbor.b) > 0) {
-                     it[target] = neighbor;
-                 }
+
+              // Rechts naar 19
+              for (int i = 19; i > 10; i--) {
+                Color n = it[i - 1].get();
+                if ((n.r + n.g + n.b) > 0) {
+                  it[i] = n;
+                }
               }
             }
 
