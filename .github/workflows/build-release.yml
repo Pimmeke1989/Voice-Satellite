@@ -21,7 +21,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install ESPHome
-        run: pip install esphome
+        run: pip install esphome==2025.12.4
 
       - name: Create Dummy Secrets
         run: |
@@ -33,7 +33,7 @@ jobs:
 
       # We bouwen de firmware. '|| true' zorgt dat hij niet stopt als hij de speaker niet online ziet.
       - name: Build Firmware
-        run: esphome compile config/voice-factory.yaml || true
+        run: esphome compile config/voice-factory.yaml # || true
 
       # HIER IS DE VERSIMPELING: We pakken direct de bestanden die volgens jouw log bestaan.
       - name: Find and Rename Files
