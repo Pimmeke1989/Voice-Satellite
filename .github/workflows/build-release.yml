@@ -21,7 +21,8 @@ jobs:
           python-version: '3.11'
 
       - name: Install ESPHome
-        run: pip install esphome
+        # Versie vastgezet op .4 om compatibiliteit met de externe componenten te garanderen
+        run: pip install esphome==2025.12.4
 
       - name: Create Dummy Secrets
         run: |
@@ -31,47 +32,63 @@ jobs:
           echo "api_key: \"dummy\"" >> config/secrets.yaml
           echo "ota_password: \"dummy\"" >> config/secrets.yaml
 
-      # We bouwen de firmware. '|| true' zorgt dat hij niet stopt als hij de speaker niet online ziet.
       - name: Build Firmware
-        run: esphome compile config/voice-factory.yaml || true
+        # '|| true' is verwijderd: als de compile faalt, stopt de actie direct
+        run: esphome compile config/voice-factory.yaml
 
-      # HIER IS DE VERSIMPELING: We pakken direct de bestanden die volgens jouw log bestaan.
-      - name: Find and Rename Files
+      - name: Find and Prepare Files
         run: |
           echo "We zoeken naar de gemaakte bestanden..."
-
-          # 1. Zoek de Factory bin (die jij in de log zag staan)
-          # We gebruiken 'find' zodat het niet uitmaakt hoe diep hij verstopt zit.
           FACTORY_PATH=$(find . -name "firmware.factory.bin" -type f | head -n 1)
-          
-          # 2. Zoek de OTA bin (firmware.bin)
           OTA_PATH=$(find . -name "firmware.bin" -type f | head -n 1)
 
-          echo "Gevonden paden:"
-          echo "Factory: $FACTORY_PATH"
-          echo "OTA:     $OTA_PATH"
-
           if [ -z "$FACTORY_PATH" ]; then
-            echo "ERROR: Kon firmware.factory.bin niet vinden, terwijl hij er wel zou moeten zijn!"
+            echo "ERROR: Kon firmware.factory.bin niet vinden!"
             exit 1
           fi
 
-          # 3. Verplaats en hernoem ze naar de root zodat de uploader ze ziet
           cp "$FACTORY_PATH" lumitone-factory.bin
           cp "$OTA_PATH" lumitone-ota.bin
-          
-          echo "Succes! Bestanden staan klaar."
+          echo "Bestanden staan klaar voor verwerking."
 
-      - name: Calculate MD5 checksum
+      - name: Update Manifest (Beta or Production)
         run: |
-          echo "MD5 checksums:"
-          md5sum lumitone-ota.bin
-          md5sum lumitone-factory.bin
+          # 1. Bepaal welk manifest we moeten gebruiken
+          if [ "${{ github.event.release.prerelease }}" = "true" ]; then
+            MANIFEST_FILE="ota/manifest-beta.json"
+            echo "RELEASE TYPE: Pre-release (Beta)"
+          else
+            MANIFEST_FILE="ota/manifest.json"
+            echo "RELEASE TYPE: Public Release"
+          fi
 
-      - name: Upload Firmware to Release
+          # 2. Bereken de nieuwe MD5 hash
+          NEW_MD5=$(md5sum lumitone-ota.bin | awk '{ print $1 }')
+          
+          # 3. Pak de versie (tag) van de release (bijv. 2026.1.1)
+          NEW_VERSION="${{ github.ref_name }}"
+          
+          echo "Nieuwe MD5: $NEW_MD5"
+          echo "Nieuwe Versie: $NEW_VERSION"
+          echo "Bestand dat wordt bijgewerkt: $MANIFEST_FILE"
+
+          # 4. Update de MD5 in het gekozen manifest
+          sed -i "s/\"md5\": \".*\"/\"md5\": \"$NEW_MD5\"/g" "$MANIFEST_FILE"
+
+          # 5. Update de versie-strings en download-URL's
+          # We gebruiken | als scheidingsteken in sed omdat de URL's slashes bevatten
+          sed -i "s/\"version\": \".*\"/\"version\": \"$NEW_VERSION\"/g" "$MANIFEST_FILE"
+          sed -i "s|releases/download/[^/]*/|releases/download/$NEW_VERSION/|g" "$MANIFEST_FILE"
+          sed -i "s|releases/tag/[^\"]*|releases/tag/$NEW_VERSION|g" "$MANIFEST_FILE"
+
+          echo "Update van $MANIFEST_FILE succesvol afgerond."
+
+      - name: Upload Firmware and Manifests to Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
             lumitone-ota.bin
             lumitone-factory.bin
+            ota/manifest.json
+            ota/manifest-beta.json
