@@ -1,18 +1,17 @@
-
+{
   "name": "LumiTone S1",
-  "version": "2026.1.2",
+  "version": "2026.1.1",
   "home_assistant_domain": "esphome",
   "new_install_prompt_erase": false,
   "builds": [
     {
       "chipFamily": "ESP32-S3",
       "ota": {
-        "md5": "f727a28b77ec91bc72c6454e89b57931",
-        "path": "https://github.com/Pimmeke1989/Voice-Satellite/releases/download/2026.1.2/lumitone-ota.bin",
-        "release_url": "https://github.com/Pimmeke1989/Voice-Satellite/releases/tag/2026.1.2",
-        "summary": "2026.1.2 Beta - New Voice Effects"
+        "md5": "d4f28faf99c72937d0cedf3e8b406bfa",
+        "path": "https://github.com/Pimmeke1989/Voice-Satellite/releases/download/2026.1.1/lumitone-ota.bin",
+        "release_url": "https://github.com/Pimmeke1989/Voice-Satellite/releases/tag/2026.1.1",
+        "summary": "2026.1.1 - Happy 2026! This will be the start of all!"
       }
     }
   ]
 }
-
