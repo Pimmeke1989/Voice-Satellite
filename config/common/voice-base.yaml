@@ -29,7 +29,7 @@ substitutions:
 esphome:
   project: 
     name: pimmeke1989.LumiTone S1
-    version: 2026.1.2_beta2
+    version: 2026.1.2_beta3
   name: lumitone-s1
   friendly_name: LumiTone S1
   name_add_mac_suffix: true
@@ -697,74 +697,97 @@ light:
             }
       
     # NEW Beta Status Animations
-# 1. WAITING BREATHE - Smooth breathing effect for all 20 LEDs
+# 1. WAITING - Idle pulse (like breathing - assistant is alive but resting)
       - addressable_lambda:
-          name: "Waiting Breathe"
-          update_interval: 30ms
+          name: "Breathe"
+          update_interval: 40ms
           lambda: |-
-            static int brightness = 100;
+            static int breath = 0;
             static int direction = 1;
             
-            // Hardcoded white color
-            Color base_color = Color(200, 200, 200);
+            // Calm blue (assistant is ready but quiet)
+            Color blue = Color(40, 80, 255);
             
-            // Apply brightness to all 20 LEDs
+            // Gentle breathing on all LEDs
+            float intensity = (breath / 200.0f);
             for (int i = 0; i < 20; i++) {
-              it[i] = base_color * (brightness / 255.0f);
+              it[i] = blue * intensity;
             }
             
-            // Update brightness for breathing effect
-            brightness += direction * 5;
-            if (brightness >= 255) {
-              brightness = 255;
+            breath += direction * 2;
+            if (breath >= 200) {
+              breath = 200;
               direction = -1;
             }
-            if (brightness <= 60) {
-              brightness = 60;
+            if (breath <= 40) {
+              breath = 40;
               direction = 1;
             }
 
-      # 2. LISTENING SCANNER DUAL - Two dots scanning in opposite directions
+      # 2. LISTENING - Audio waveform (center responds to "hearing")
       - addressable_lambda:
-          name: "Listening Scanner"
-          update_interval: 30ms
+          name: "Scanner"
+          update_interval: 50ms
+          lambda: |-
+            static int wave_height = 0;
+            static int direction = 1;
+            
+            // Bright blue (actively listening)
+            Color listening_blue = Color(0, 200, 255);
+            
+            // Create audio meter effect from center
+            int center = 10;
+            int lit_leds = wave_height / 2;
+            
+            for (int i = 0; i < 20; i++) {
+              int distance = abs(i - center);
+              if (distance <= lit_leds) {
+                float brightness = 1.0f - (distance / 10.0f);
+                it[i] = listening_blue * brightness;
+              } else {
+                it[i] = Color(0, 0, 0);
+              }
+            }
+            
+            // Simulate audio levels bouncing
+            wave_height += direction * 3;
+            if (wave_height >= 20) {
+              wave_height = 20;
+              direction = -1;
+            }
+            if (wave_height <= 4) {
+              wave_height = 4;
+              direction = 1;
+            }
+
+      # 3. THINKING - Processing dots (like a loading bar)
+      - addressable_lambda:
+          name: "Heartbeat"
+          update_interval: 60ms
           lambda: |-
             static int pos = 0;
             static int direction = 1;
             
-            // Hardcoded blue color
-            Color base_color = Color(0, 100, 255);
+            // Purple (AI is thinking/processing)
+            Color purple = Color(180, 0, 255);
             
-            // Fade all LEDs
+            // Fade previous LEDs
             for (int i = 0; i < 20; i++) {
-              auto current = it[i].get();
-              it[i] = Color(
-                current.r * 0.85f,
-                current.g * 0.85f,
-                current.b * 0.85f
-              );
+              it[i] = it[i].get() * 0.85f;
             }
             
-            // First scanner moving forward
-            it[pos] = base_color;
-            if (pos > 0) {
-              it[pos - 1] = base_color * 0.5f;
+            // Light up current position brightly
+            it[pos] = purple;
+            
+            // Add trail effect
+            if (pos > 0 && direction == 1) {
+              it[pos - 1] = purple * 0.6f;
             }
-            if (pos < 19) {
-              it[pos + 1] = base_color * 0.5f;
+            if (pos < 19 && direction == -1) {
+              it[pos + 1] = purple * 0.6f;
             }
             
-            // Second scanner moving in opposite direction
-            int pos2 = 19 - pos;
-            it[pos2] = base_color;
-            if (pos2 > 0) {
-              it[pos2 - 1] = base_color * 0.5f;
-            }
-            if (pos2 < 19) {
-              it[pos2 + 1] = base_color * 0.5f;
-            }
-            
-            // Move position
+            // Move back and forth while thinking
             pos += direction;
             if (pos >= 19) {
               pos = 19;
@@ -775,89 +798,36 @@ light:
               direction = 1;
             }
 
-      # 3. THINKING HEARTBEAT - Double pulse effect on all LEDs
+      # 4. REPLYING - Voice output pulse (speaking from center)
       - addressable_lambda:
-          name: "Thinking Heartbeat"
-          update_interval: 20ms
+          name: "Gravcenter"
+          update_interval: 80ms
           lambda: |-
-            static int cycle = 0;
-            static const int CYCLE_LENGTH = 100;
+            static int pulse = 0;
             
-            // Hardcoded magenta color
-            Color base_color = Color(255, 0, 255);
+            // Green (assistant is speaking/responding)
+            Color green = Color(0, 255, 80);
             
-            float brightness = 0.1f;
+            // Create pulsing speech pattern from center
+            int center = 10;
             
-            // First beat at 10-20% through cycle
-            if (cycle >= 10 && cycle <= 20) {
-              float progress = (cycle - 15) / 5.0f;
-              brightness = 1.0f - (progress * progress * 0.8f);
-            }
-            // Second beat at 30-40% through cycle
-            else if (cycle >= 30 && cycle <= 40) {
-              float progress = (cycle - 35) / 5.0f;
-              brightness = 0.7f - (progress * progress * 0.6f);
-            }
-            
-            // Apply to all 20 LEDs
             for (int i = 0; i < 20; i++) {
-              it[i] = base_color * brightness;
-            }
-            
-            cycle++;
-            if (cycle >= CYCLE_LENGTH) {
-              cycle = 0;
-            }
-
-      # 4. REPLYING GRAVCENTER - Particles spawn at center and fall to edges
-      - addressable_lambda:
-          name: "Replying Gravcenter"
-          update_interval: 40ms
-          lambda: |-
-            static int spawn_counter = 0;
-            
-            // Hardcoded green color
-            Color base_color = Color(0, 255, 100);
-            
-            // Move particles outward FIRST (before fading)
-            // Left side: move from 8 down to 0 (bottom to top to avoid overwriting)
-            for (int i = 0; i < 9; i++) {
-              auto current = it[i + 1].get();
-              int total = current.r + current.g + current.b;
-              if (total > 30) {
-                it[i] = current * 0.95f;
-              }
-            }
-            
-            // Right side: move from 11 up to 19 (bottom to top to avoid overwriting)
-            for (int i = 19; i > 10; i--) {
-              auto current = it[i - 1].get();
-              int total = current.r + current.g + current.b;
-              if (total > 30) {
-                it[i] = current * 0.95f;
-              }
-            }
-            
-            // Then fade all LEDs
-            for (int i = 0; i < 20; i++) {
-              auto current = it[i].get();
-              it[i] = Color(
-                current.r * 0.85f,
-                current.g * 0.85f,
-                current.b * 0.85f
-              );
-            }
-            
-            // Spawn new particles at center (positions 9 and 10)
-            spawn_counter++;
-            if (spawn_counter >= 2) {
-              spawn_counter = 0;
-              // Use modulo to get 0 or 1
-              if ((esp_random() % 2) == 0) {
-                it[9] = base_color;
+              int distance = abs(i - center);
+              
+              // Create expanding pulse rings
+              int ring1 = pulse % 10;
+              int ring2 = (pulse + 5) % 10;
+              
+              if (distance == ring1 || distance == ring2) {
+                it[i] = green;
               } else {
-                it[10] = base_color;
+                it[i] = it[i].get() * 0.7f;
               }
+            }
+            
+            pulse++;
+            if (pulse >= 10) {
+              pulse = 0;
             }
 
   # User facing LED ring. Remapping of the internal LEDs. 
@@ -1127,7 +1097,7 @@ script:
           # green: !lambda return id(led_ring).current_values.get_green();
           # blue: !lambda return id(led_ring).current_values.get_blue();
           # effect: "Scan Slow"
-          effect: "Waiting Breathe"
+          effect: "Breathe"
 
   # NEW - Script for Listening to command
   # NEW - Uses Scan Fast
@@ -1140,7 +1110,7 @@ script:
           # green: !lambda return id(led_ring).current_values.get_green();
           # blue: !lambda return id(led_ring).current_values.get_blue();
           # effect: "Scan Fast"
-          effect: "Listening Scanner"
+          effect: "Scanner"
 
   # Script executed when the voice assistant is thinking to a command
   # The spin stops and the 2 LEDs that are currently on and blinking indicating the commend is being processed.
@@ -1150,7 +1120,7 @@ script:
           brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
           id: voice_assistant_leds
           # effect: "Thinking"
-          effect: "Thinking Heartbeat"
+          effect: "Heartbeat"
 
   # NEW - Script for Replying to command
   # NEW - Uses Scan Fast
@@ -1163,7 +1133,7 @@ script:
           # green: 77%
           # blue: 56%
           # effect: "Scan Fast"
-          effect: "Replying Gravcenter"
+          effect: "Gravcenter"
 
   # Script executed when the voice assistant is in error
   # Fast Red Pulse
