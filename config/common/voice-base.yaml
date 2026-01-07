@@ -29,7 +29,7 @@ substitutions:
 esphome:
   project: 
     name: pimmeke1989.LumiTone S1
-    version: 2026.1.2_beta3
+    version: 2026.1.2_beta4
   name: lumitone-s1
   friendly_name: LumiTone S1
   name_add_mac_suffix: true
@@ -700,134 +700,132 @@ light:
 # 1. WAITING - Idle pulse (like breathing - assistant is alive but resting)
       - addressable_lambda:
           name: "Breathe"
-          update_interval: 40ms
+          update_interval: 30ms
           lambda: |-
-            static int breath = 0;
-            static int direction = 1;
-            
-            // Calm blue (assistant is ready but quiet)
-            Color blue = Color(40, 80, 255);
-            
-            // Gentle breathing on all LEDs
-            float intensity = (breath / 200.0f);
-            for (int i = 0; i < 20; i++) {
-              it[i] = blue * intensity;
+            static uint8_t step = 0;
+            static bool down = false;
+            const uint8_t STEPS = 40;
+
+            if (initial_run) {
+              step = 0;
+              down = false;
             }
-            
-            breath += direction * 2;
-            if (breath >= 200) {
-              breath = 200;
-              direction = -1;
+
+            // Zachte ademhaling
+            uint8_t brightness = (uint8_t)(40 + (160.0f * step / STEPS));
+
+            for (uint8_t i = 0; i < it.size(); i++) {
+              it[i] = Color(brightness, brightness, brightness);
             }
-            if (breath <= 40) {
-              breath = 40;
-              direction = 1;
+
+            if (down) {
+              if (step > 0) step--;
+              else down = false;
+            } else {
+              if (step < STEPS) step++;
+              else down = true;
             }
 
       # 2. LISTENING - Audio waveform (center responds to "hearing")
       - addressable_lambda:
           name: "Scanner"
-          update_interval: 50ms
+          update_interval: 25ms
           lambda: |-
-            static int wave_height = 0;
-            static int direction = 1;
-            
-            // Bright blue (actively listening)
-            Color listening_blue = Color(0, 200, 255);
-            
-            // Create audio meter effect from center
-            int center = 10;
-            int lit_leds = wave_height / 2;
-            
-            for (int i = 0; i < 20; i++) {
-              int distance = abs(i - center);
-              if (distance <= lit_leds) {
-                float brightness = 1.0f - (distance / 10.0f);
-                it[i] = listening_blue * brightness;
-              } else {
-                it[i] = Color(0, 0, 0);
-              }
+            static int pos = 0;
+            static int dir = 1;
+
+            const Color blue(0, 80, 255);
+            const uint8_t trail = 5;
+
+            if (initial_run) {
+              pos = 0;
+              dir = 1;
             }
-            
-            // Simulate audio levels bouncing
-            wave_height += direction * 3;
-            if (wave_height >= 20) {
-              wave_height = 20;
-              direction = -1;
+
+            // Fade bestaande pixels (trailing effect)
+            for (uint8_t i = 0; i < it.size(); i++) {
+              it[i] = it[i] * 180; // zachte fade
             }
-            if (wave_height <= 4) {
-              wave_height = 4;
-              direction = 1;
+
+            int left  = pos;
+            int right = (int)it.size() - 1 - pos;
+
+            for (int t = 0; t < trail; t++) {
+              uint8_t fade = 255 - (t * (255 / trail));
+              if (left - t >= 0)
+                it[left - t] = blue * fade;
+              if (right + t < it.size())
+                it[right + t] = blue * fade;
             }
+
+            pos += dir;
+            if (pos >= it.size() / 2) dir = -1;
+            if (pos <= 0) dir = 1;
 
       # 3. THINKING - Processing dots (like a loading bar)
       - addressable_lambda:
           name: "Heartbeat"
-          update_interval: 60ms
+          update_interval: 20ms
           lambda: |-
-            static int pos = 0;
-            static int direction = 1;
-            
-            // Purple (AI is thinking/processing)
-            Color purple = Color(180, 0, 255);
-            
-            // Fade previous LEDs
-            for (int i = 0; i < 20; i++) {
-              it[i] = it[i].get() * 0.85f;
-            }
-            
-            // Light up current position brightly
-            it[pos] = purple;
-            
-            // Add trail effect
-            if (pos > 0 && direction == 1) {
-              it[pos - 1] = purple * 0.6f;
-            }
-            if (pos < 19 && direction == -1) {
-              it[pos + 1] = purple * 0.6f;
-            }
-            
-            // Move back and forth while thinking
-            pos += direction;
-            if (pos >= 19) {
-              pos = 19;
-              direction = -1;
-            }
-            if (pos <= 0) {
-              pos = 0;
-              direction = 1;
+            static uint16_t frame = 0;
+            const uint16_t BPM_FRAMES = 1000 / 20; // 1 seconde per beat @20ms
+            const Color magenta(255, 0, 255);
+
+            frame = (frame + 1) % BPM_FRAMES;
+
+            float intensity = 0.0f;
+
+            // Dubbele hartslag: lub-dub
+            if (frame < 6)
+              intensity = 1.0f;
+            else if (frame < 12)
+              intensity = 0.4f;
+            else if (frame > 25 && frame < 31)
+              intensity = 0.7f;
+
+            uint8_t bri = (uint8_t)(intensity * 255);
+
+            for (uint8_t i = 0; i < it.size(); i++) {
+              it[i] = magenta * bri;
             }
 
       # 4. REPLYING - Voice output pulse (speaking from center)
       - addressable_lambda:
           name: "Gravcenter"
-          update_interval: 80ms
+          update_interval: 30ms
           lambda: |-
-            static int pulse = 0;
-            
-            // Green (assistant is speaking/responding)
-            Color green = Color(0, 255, 80);
-            
-            // Create pulsing speech pattern from center
-            int center = 10;
-            
-            for (int i = 0; i < 20; i++) {
-              int distance = abs(i - center);
-              
-              // Create expanding pulse rings
-              int ring1 = pulse % 10;
-              int ring2 = (pulse + 5) % 10;
-              
-              if (distance == ring1 || distance == ring2) {
-                it[i] = green;
-              } else {
-                it[i] = it[i].get() * 0.7f;
-              }
+            static int width = 0;
+            static bool expanding = true;
+
+            const Color green(0, 255, 0);
+            int center = it.size() / 2;
+
+            if (initial_run) {
+              width = 0;
+              expanding = true;
             }
-            
-            pulse++;
-            if (pulse >= 10) {
-              pulse = 0;
+
+            // Clear strip
+            for (uint8_t i = 0; i < it.size(); i++) {
+              it[i] = Color::BLACK;
+            }
+
+            // Render from center
+            for (int i = 0; i <= width; i++) {
+              int left  = center - i;
+              int right = center + i - 1;
+
+              if (left >= 0)  it[left]  = green;
+              if (right < it.size()) it[right] = green;
+            }
+
+            // Animate
+            if (expanding) {
+              width++;
+              if (width >= center) expanding = false;
+            } else {
+              width--;
+              if (width <= 0) expanding = true;
             }
 
   # User facing LED ring. Remapping of the internal LEDs. 
@@ -1092,7 +1090,7 @@ script:
       - light.turn_on:
           id: voice_assistant_leds
           # Deze regels zijn noodzakelijk om te synchroniseren met jouw instelling
-          # brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.5f );
+          brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.5f );
           # red: !lambda return id(led_ring).current_values.get_red();
           # green: !lambda return id(led_ring).current_values.get_green();
           # blue: !lambda return id(led_ring).current_values.get_blue();
@@ -1105,7 +1103,7 @@ script:
     then:
       - light.turn_on:
           id: voice_assistant_leds
-          # brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.5f );
+          brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
           # red: !lambda return id(led_ring).current_values.get_red();
           # green: !lambda return id(led_ring).current_values.get_green();
           # blue: !lambda return id(led_ring).current_values.get_blue();
@@ -1128,7 +1126,7 @@ script:
     then:
       - light.turn_on:
           id: voice_assistant_leds
-          # brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.5f );
+          brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
           # red: 100%
           # green: 77%
           # blue: 56%
