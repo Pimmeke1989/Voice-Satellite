@@ -697,7 +697,7 @@ light:
             }
       
     # NEW Beta Status Animations
-      # 1. WAITING BREATHE - Smooth breathing effect for all 20 LEDs
+# 1. WAITING BREATHE - Smooth breathing effect for all 20 LEDs
       - addressable_lambda:
           name: "Waiting Breathe"
           update_interval: 30ms
@@ -833,7 +833,8 @@ light:
             spawn_counter++;
             if (spawn_counter >= 3) {
               spawn_counter = 0;
-              if (random(0, 2) == 0) {
+              // Use modulo to get 0 or 1
+              if ((esp_random() % 2) == 0) {
                 it[9] = base_color;
               } else {
                 it[10] = base_color;
