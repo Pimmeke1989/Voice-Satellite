@@ -697,7 +697,7 @@ light:
             }
       
     # NEW Beta Status Animations
-# 1. WAITING - Idle pulse (like breathing - assistant is alive but resting)
+      # 1. WAITING - Idle pulse (like breathing - assistant is alive but resting)
       - addressable_lambda:
           name: "Breathe"
           update_interval: 30ms
@@ -705,16 +705,16 @@ light:
             static uint8_t step = 0;
             static bool down = false;
             const uint8_t STEPS = 40;
+            const uint8_t LEDS = 20;
 
             if (initial_run) {
               step = 0;
               down = false;
             }
 
-            // Zachte ademhaling
-            uint8_t brightness = (uint8_t)(40 + (160.0f * step / STEPS));
+            uint8_t brightness = 40 + (uint8_t)(160.0f * step / STEPS);
 
-            for (uint8_t i = 0; i < it.size(); i++) {
+            for (uint8_t i = 0; i < LEDS; i++) {
               it[i] = Color(brightness, brightness, brightness);
             }
 
@@ -734,32 +734,34 @@ light:
             static int pos = 0;
             static int dir = 1;
 
+            const uint8_t LEDS = 20;
+            const uint8_t TRAIL = 4;
             const Color blue(0, 80, 255);
-            const uint8_t trail = 5;
 
             if (initial_run) {
               pos = 0;
               dir = 1;
+              for (int i = 0; i < LEDS; i++) it[i] = Color::BLACK;
             }
 
-            // Fade bestaande pixels (trailing effect)
-            for (uint8_t i = 0; i < it.size(); i++) {
-              it[i] = it[i] * 180; // zachte fade
+            // Fade-out
+            for (int i = 0; i < LEDS; i++) {
+              it[i].fade_to_black(40);
             }
 
             int left  = pos;
-            int right = (int)it.size() - 1 - pos;
+            int right = LEDS - 1 - pos;
 
-            for (int t = 0; t < trail; t++) {
-              uint8_t fade = 255 - (t * (255 / trail));
+            for (int t = 0; t < TRAIL; t++) {
+              uint8_t fade = 255 - (t * (255 / TRAIL));
               if (left - t >= 0)
                 it[left - t] = blue * fade;
-              if (right + t < it.size())
+              if (right + t < LEDS)
                 it[right + t] = blue * fade;
             }
 
             pos += dir;
-            if (pos >= it.size() / 2) dir = -1;
+            if (pos >= LEDS / 2) dir = -1;
             if (pos <= 0) dir = 1;
 
       # 3. THINKING - Processing dots (like a loading bar)
@@ -768,24 +770,21 @@ light:
           update_interval: 20ms
           lambda: |-
             static uint16_t frame = 0;
-            const uint16_t BPM_FRAMES = 1000 / 20; // 1 seconde per beat @20ms
+            const uint8_t LEDS = 20;
+            const uint16_t FRAMES = 50; // ~1s @20ms
             const Color magenta(255, 0, 255);
 
-            frame = (frame + 1) % BPM_FRAMES;
+            frame = (frame + 1) % FRAMES;
 
             float intensity = 0.0f;
 
-            // Dubbele hartslag: lub-dub
-            if (frame < 6)
-              intensity = 1.0f;
-            else if (frame < 12)
-              intensity = 0.4f;
-            else if (frame > 25 && frame < 31)
-              intensity = 0.7f;
+            if (frame < 4) intensity = 1.0f;
+            else if (frame < 8) intensity = 0.4f;
+            else if (frame > 20 && frame < 24) intensity = 0.7f;
 
-            uint8_t bri = (uint8_t)(intensity * 255);
+            uint8_t bri = (uint8_t)(intensity * 255.0f);
 
-            for (uint8_t i = 0; i < it.size(); i++) {
+            for (uint8_t i = 0; i < LEDS; i++) {
               it[i] = magenta * bri;
             }
 
@@ -797,29 +796,26 @@ light:
             static int width = 0;
             static bool expanding = true;
 
+            const uint8_t LEDS = 20;
             const Color green(0, 255, 0);
-            int center = it.size() / 2;
+            int center = LEDS / 2;
 
             if (initial_run) {
               width = 0;
               expanding = true;
             }
 
-            // Clear strip
-            for (uint8_t i = 0; i < it.size(); i++) {
+            for (uint8_t i = 0; i < LEDS; i++) {
               it[i] = Color::BLACK;
             }
 
-            // Render from center
             for (int i = 0; i <= width; i++) {
-              int left  = center - i;
-              int right = center + i - 1;
-
-              if (left >= 0)  it[left]  = green;
-              if (right < it.size()) it[right] = green;
+              int l = center - 1 - i;
+              int r = center + i;
+              if (l >= 0) it[l] = green;
+              if (r < LEDS) it[r] = green;
             }
 
-            // Animate
             if (expanding) {
               width++;
               if (width >= center) expanding = false;
