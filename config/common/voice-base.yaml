@@ -29,7 +29,7 @@ substitutions:
 esphome:
   project: 
     name: pimmeke1989.LumiTone S1
-    version: 2026.1.2_beta
+    version: 2026.1.2_beta2
   name: lumitone-s1
   friendly_name: LumiTone S1
   name_add_mac_suffix: true
@@ -702,7 +702,7 @@ light:
           name: "Waiting Breathe"
           update_interval: 30ms
           lambda: |-
-            static int brightness = 0;
+            static int brightness = 100;
             static int direction = 1;
             
             // Hardcoded white color
@@ -714,13 +714,13 @@ light:
             }
             
             // Update brightness for breathing effect
-            brightness += direction * 3;
+            brightness += direction * 5;
             if (brightness >= 255) {
               brightness = 255;
               direction = -1;
             }
-            if (brightness <= 40) {
-              brightness = 40;
+            if (brightness <= 60) {
+              brightness = 60;
               direction = 1;
             }
 
@@ -786,17 +786,17 @@ light:
             // Hardcoded magenta color
             Color base_color = Color(255, 0, 255);
             
-            float brightness = 0.05f;
+            float brightness = 0.1f;
             
-            // First beat at 15% through cycle
+            // First beat at 10-20% through cycle
             if (cycle >= 10 && cycle <= 20) {
-              float progress = (cycle - 10) / 10.0f;
-              brightness = 1.0f - abs(progress - 0.5f) * 2.0f;
+              float progress = (cycle - 15) / 5.0f;
+              brightness = 1.0f - (progress * progress * 0.8f);
             }
-            // Second beat at 35% through cycle
+            // Second beat at 30-40% through cycle
             else if (cycle >= 30 && cycle <= 40) {
-              float progress = (cycle - 30) / 10.0f;
-              brightness = 0.8f * (1.0f - abs(progress - 0.5f) * 2.0f);
+              float progress = (cycle - 35) / 5.0f;
+              brightness = 0.7f - (progress * progress * 0.6f);
             }
             
             // Apply to all 20 LEDs
@@ -812,55 +812,51 @@ light:
       # 4. REPLYING GRAVCENTER - Particles spawn at center and fall to edges
       - addressable_lambda:
           name: "Replying Gravcenter"
-          update_interval: 50ms
+          update_interval: 40ms
           lambda: |-
             static int spawn_counter = 0;
             
             // Hardcoded green color
             Color base_color = Color(0, 255, 100);
             
-            // Fade all LEDs
+            // Move particles outward FIRST (before fading)
+            // Left side: move from 8 down to 0 (bottom to top to avoid overwriting)
+            for (int i = 0; i < 9; i++) {
+              auto current = it[i + 1].get();
+              int total = current.r + current.g + current.b;
+              if (total > 30) {
+                it[i] = current * 0.95f;
+              }
+            }
+            
+            // Right side: move from 11 up to 19 (bottom to top to avoid overwriting)
+            for (int i = 19; i > 10; i--) {
+              auto current = it[i - 1].get();
+              int total = current.r + current.g + current.b;
+              if (total > 30) {
+                it[i] = current * 0.95f;
+              }
+            }
+            
+            // Then fade all LEDs
             for (int i = 0; i < 20; i++) {
               auto current = it[i].get();
               it[i] = Color(
-                current.r * 0.8f,
-                current.g * 0.8f,
-                current.b * 0.8f
+                current.r * 0.85f,
+                current.g * 0.85f,
+                current.b * 0.85f
               );
             }
             
             // Spawn new particles at center (positions 9 and 10)
             spawn_counter++;
-            if (spawn_counter >= 3) {
+            if (spawn_counter >= 2) {
               spawn_counter = 0;
               // Use modulo to get 0 or 1
               if ((esp_random() % 2) == 0) {
                 it[9] = base_color;
               } else {
                 it[10] = base_color;
-              }
-            }
-            
-            // Move particles outward from center (gravity effect)
-            // Left side: move from 9 down to 0
-            for (int i = 1; i < 10; i++) {
-              auto current = it[i].get();
-              auto next = it[i - 1].get();
-              
-              // If current LED is brighter, move it down
-              if ((current.r + current.g + current.b) > (next.r + next.g + next.b)) {
-                it[i - 1] = current * 0.9f;
-              }
-            }
-            
-            // Right side: move from 10 up to 19
-            for (int i = 18; i >= 10; i--) {
-              auto current = it[i].get();
-              auto next = it[i + 1].get();
-              
-              // If current LED is brighter, move it up
-              if ((current.r + current.g + current.b) > (next.r + next.g + next.b)) {
-                it[i + 1] = current * 0.9f;
               }
             }
 
