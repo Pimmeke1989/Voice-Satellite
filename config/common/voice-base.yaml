@@ -29,7 +29,7 @@ substitutions:
 esphome:
   project: 
     name: pimmeke1989.LumiTone S1
-    version: 2026.1.2_beta4
+    version: 2026.1.2_beta5
   name: lumitone-s1
   friendly_name: LumiTone S1
   name_add_mac_suffix: true
@@ -729,13 +729,12 @@ light:
       # 2. LISTENING - Audio waveform (center responds to "hearing")
       - addressable_lambda:
           name: "Scanner"
-          update_interval: 25ms
+          update_interval: 35ms
           lambda: |-
             static int pos = 0;
             static int dir = 1;
 
             const uint8_t LEDS = 20;
-            const uint8_t TRAIL = 4;
             const Color blue(0, 80, 255);
 
             if (initial_run) {
@@ -744,21 +743,18 @@ light:
               for (int i = 0; i < LEDS; i++) it[i] = Color::BLACK;
             }
 
-            // Fade-out
+            // Globale zachte fading
             for (int i = 0; i < LEDS; i++) {
-              it[i].fade_to_black(40);
+              it[i].fade_to_black(25);
             }
 
             int left  = pos;
             int right = LEDS - 1 - pos;
 
-            for (int t = 0; t < TRAIL; t++) {
-              uint8_t fade = 255 - (t * (255 / TRAIL));
-              if (left - t >= 0)
-                it[left - t] = blue * fade;
-              if (right + t < LEDS)
-                it[right + t] = blue * fade;
-            }
+            if (left >= 0 && left < LEDS)
+              it[left] = blue;
+            if (right >= 0 && right < LEDS)
+              it[right] = blue;
 
             pos += dir;
             if (pos >= LEDS / 2) dir = -1;
@@ -770,52 +766,70 @@ light:
           update_interval: 20ms
           lambda: |-
             static uint16_t frame = 0;
+
             const uint8_t LEDS = 20;
-            const uint16_t FRAMES = 50; // ~1s @20ms
+            const uint16_t FRAMES = 50; // ~60 BPM
             const Color magenta(255, 0, 255);
+
+            const uint8_t BASE_GLOW = 60;   // blijft altijd zichtbaar
+            const uint8_t FADE_STEP = 8;    // hoe snel hij naar target fade't
 
             frame = (frame + 1) % FRAMES;
 
-            float intensity = 0.0f;
+            float pulse = 0.0f;
 
-            if (frame < 4) intensity = 1.0f;
-            else if (frame < 8) intensity = 0.4f;
-            else if (frame > 20 && frame < 24) intensity = 0.7f;
+            // lub-dub patroon
+            if (frame < 4) pulse = 1.0f;
+            else if (frame < 8) pulse = 0.4f;
+            else if (frame > 22 && frame < 26) pulse = 0.7f;
 
-            uint8_t bri = (uint8_t)(intensity * 255.0f);
+            uint8_t target_bri = BASE_GLOW +
+              (uint8_t)(pulse * (255 - BASE_GLOW));
 
             for (uint8_t i = 0; i < LEDS; i++) {
-              it[i] = magenta * bri;
+              uint8_t cur_bri = it[i].red; // magenta → rood kanaal leidend
+
+              if (cur_bri < target_bri)
+                cur_bri = min<uint8_t>(cur_bri + FADE_STEP, target_bri);
+              else
+                cur_bri = max<int>(cur_bri - FADE_STEP, target_bri);
+
+              it[i] = magenta * cur_bri;
             }
 
       # 4. REPLYING - Voice output pulse (speaking from center)
       - addressable_lambda:
           name: "Gravcenter"
-          update_interval: 30ms
+          update_interval: 35ms
           lambda: |-
             static int width = 0;
             static bool expanding = true;
 
             const uint8_t LEDS = 20;
             const Color green(0, 255, 0);
-            int center = LEDS / 2;
+            const int center = LEDS / 2;
 
             if (initial_run) {
               width = 0;
               expanding = true;
+              for (int i = 0; i < LEDS; i++) it[i] = Color::BLACK;
             }
 
+            // Globale fading (geen staart)
             for (uint8_t i = 0; i < LEDS; i++) {
-              it[i] = Color::BLACK;
+              it[i].fade_to_black(30);
             }
 
+            // Vullen vanuit midden
             for (int i = 0; i <= width; i++) {
               int l = center - 1 - i;
               int r = center + i;
+
               if (l >= 0) it[l] = green;
               if (r < LEDS) it[r] = green;
             }
 
+            // Animatie
             if (expanding) {
               width++;
               if (width >= center) expanding = false;
