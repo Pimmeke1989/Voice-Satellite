@@ -733,31 +733,31 @@ light:
           lambda: |-
             static int pos = 0;
             static int dir = 1;
+            static uint8_t fade[20];
 
-            const uint8_t LEDS = 20;
             const Color blue(0, 80, 255);
 
             if (initial_run) {
               pos = 0;
               dir = 1;
-              for (int i = 0; i < LEDS; i++) it[i] = Color::BLACK;
+              for (int i = 0; i < 20; i++) fade[i] = 0;
             }
 
-            // Globale zachte fading
-            for (int i = 0; i < LEDS; i++) {
-              it[i].fade_to_black(25);
+            // Fade buffer
+            for (int i = 0; i < 20; i++) {
+              if (fade[i] > 12) fade[i] -= 12;
+              else fade[i] = 0;
+              it[i] = blue * fade[i];
             }
 
             int left  = pos;
-            int right = LEDS - 1 - pos;
+            int right = 19 - pos;
 
-            if (left >= 0 && left < LEDS)
-              it[left] = blue;
-            if (right >= 0 && right < LEDS)
-              it[right] = blue;
+            fade[left]  = 255;
+            fade[right] = 255;
 
             pos += dir;
-            if (pos >= LEDS / 2) dir = -1;
+            if (pos >= 10) dir = -1;
             if (pos <= 0) dir = 1;
 
       # 3. THINKING - Processing dots (like a loading bar)
@@ -766,35 +766,25 @@ light:
           update_interval: 20ms
           lambda: |-
             static uint16_t frame = 0;
+            static uint8_t level = 60;
 
-            const uint8_t LEDS = 20;
-            const uint16_t FRAMES = 50; // ~60 BPM
             const Color magenta(255, 0, 255);
-
-            const uint8_t BASE_GLOW = 60;   // blijft altijd zichtbaar
-            const uint8_t FADE_STEP = 8;    // hoe snel hij naar target fade't
+            const uint16_t FRAMES = 50;
+            const uint8_t BASE = 60;
 
             frame = (frame + 1) % FRAMES;
 
-            float pulse = 0.0f;
+            uint8_t target = BASE;
 
-            // lub-dub patroon
-            if (frame < 4) pulse = 1.0f;
-            else if (frame < 8) pulse = 0.4f;
-            else if (frame > 22 && frame < 26) pulse = 0.7f;
+            if (frame < 4) target = 255;
+            else if (frame < 8) target = 160;
+            else if (frame > 22 && frame < 26) target = 200;
 
-            uint8_t target_bri = BASE_GLOW +
-              (uint8_t)(pulse * (255 - BASE_GLOW));
+            if (level < target) level += 6;
+            else if (level > target) level -= 6;
 
-            for (uint8_t i = 0; i < LEDS; i++) {
-              uint8_t cur_bri = it[i].red; // magenta → rood kanaal leidend
-
-              if (cur_bri < target_bri)
-                cur_bri = min<uint8_t>(cur_bri + FADE_STEP, target_bri);
-              else
-                cur_bri = max<int>(cur_bri - FADE_STEP, target_bri);
-
-              it[i] = magenta * cur_bri;
+            for (int i = 0; i < 20; i++) {
+              it[i] = magenta * level;
             }
 
       # 4. REPLYING - Voice output pulse (speaking from center)
@@ -804,32 +794,31 @@ light:
           lambda: |-
             static int width = 0;
             static bool expanding = true;
+            static uint8_t fade[20];
 
-            const uint8_t LEDS = 20;
             const Color green(0, 255, 0);
-            const int center = LEDS / 2;
+            const int center = 10;
 
             if (initial_run) {
               width = 0;
               expanding = true;
-              for (int i = 0; i < LEDS; i++) it[i] = Color::BLACK;
+              for (int i = 0; i < 20; i++) fade[i] = 0;
             }
 
-            // Globale fading (geen staart)
-            for (uint8_t i = 0; i < LEDS; i++) {
-              it[i].fade_to_black(30);
+            // Fade buffer
+            for (int i = 0; i < 20; i++) {
+              if (fade[i] > 15) fade[i] -= 15;
+              else fade[i] = 0;
+              it[i] = green * fade[i];
             }
 
-            // Vullen vanuit midden
             for (int i = 0; i <= width; i++) {
               int l = center - 1 - i;
               int r = center + i;
-
-              if (l >= 0) it[l] = green;
-              if (r < LEDS) it[r] = green;
+              fade[l] = 255;
+              fade[r] = 255;
             }
 
-            // Animatie
             if (expanding) {
               width++;
               if (width >= center) expanding = false;
