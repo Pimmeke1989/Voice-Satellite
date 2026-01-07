@@ -7,7 +7,7 @@
     {
       "chipFamily": "ESP32-S3",
       "ota": {
-        "md5": "f87c854b28cb771a13d50c17e3133dfd",
+        "md5": "84bb8a92091f39259bfd6d9bee83be07",
         "path": "https://github.com/Pimmeke1989/Voice-Satellite/releases/download/2026.1.2/lumitone-ota.bin",
         "release_url": "https://github.com/Pimmeke1989/Voice-Satellite/releases/tag/2026.1.2",
         "summary": "2026.1.2 - New Voice Effects!"
