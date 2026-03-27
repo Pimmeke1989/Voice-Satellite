@@ -29,11 +29,11 @@ substitutions:
 esphome:
   project: 
     name: pimmeke1989.LumiTone S1
-    version: 2026.1.4
+    version: 2026.3.0
   name: lumitone-s1
   friendly_name: LumiTone S1
   name_add_mac_suffix: true
-  min_version: 2026.1.0
+  min_version: 2026.3.0
   on_boot:
     - priority: 375
       then:
@@ -52,8 +52,6 @@ esphome:
               - script.execute: control_leds
     - priority: -100
       then:
-        - lambda: |-
-            id(alarm_time).publish_state(id(saved_alarm_time));
         - lambda: |-
             auto call = id(alarm_action).make_call();
             call.set_option(id(saved_alarm_action));
@@ -119,17 +117,6 @@ api:
     - action: stop_va
       then:
         - voice_assistant.stop
-    - action: set_alarm_time
-      variables:
-        alarm_time_hh_mm: string
-      then:
-        - lambda: |-
-            if (alarm_time_hh_mm.length() == 5 &&
-              isdigit(alarm_time_hh_mm[0]) && isdigit(alarm_time_hh_mm[1]) &&
-              isdigit(alarm_time_hh_mm[3]) && isdigit(alarm_time_hh_mm[4])) {
-                id(alarm_time).publish_state(alarm_time_hh_mm);
-                id(saved_alarm_time) = alarm_time_hh_mm;
-              }
     - action: set_time_zone
       variables:
         posix_time_zone: string
@@ -145,10 +132,6 @@ api:
   on_client_disconnected:
     - script.execute: control_leds
   encryption:
-
-http_request:
-# Uncomment this, if you have problems with text-to-speech because of Home Assistant HTTPS internal URL
-#   verify_ssl: false
 
 ota:
   - platform: esphome
@@ -197,10 +180,6 @@ globals:
     type: bool
     restore_value: no
     initial_value: 'false'
-  - id: saved_alarm_time
-    type: std::string
-    restore_value: yes
-    initial_value: '"Unknown"'
   - id: saved_time_zone
     type: std::string
     restore_value: yes
@@ -230,13 +209,27 @@ time:
   - platform: homeassistant
     id: homeassistant_time
     on_time:
-      # Every 5 minute
+      # Every 1 minute
       - seconds: 0
-        minutes: /1
         then:
           - script.execute: check_alarm
     on_time_sync:
       - script.execute: publish_current_time
+
+datetime:
+  # schedule the alarm time from Home Assistant
+  - platform: template
+    icon: mdi:bell-ring
+    name: "Alarm time"
+    id: alarm_time
+    type: time
+    initial_value: "00:00:00"
+    restore_value: true
+    optimistic: true
+    internal: false
+    set_action:
+      then:
+        - switch.turn_on: alarm_on
           
 
 switch:
@@ -334,7 +327,7 @@ switch:
       # Disable stop wake word
       - micro_wake_word.disable_model: stop
       - script.execute: disable_repeat
-      # Stop any current annoucement (ie: stop the timer ring mid playback)
+      # Stop any current announcement (ie: stop the timer ring mid playback)
       - if:
           condition:
             media_player.is_announcing:
@@ -971,10 +964,6 @@ text_sensor:
     icon: "mdi:timer"
     disabled_by_default: true
   - platform: template
-    name: "Alarm time"
-    id: alarm_time
-    icon: mdi:bell-ring
-  - platform: template
     name: "Current device time"
     id: current_time
     icon: mdi:clock
@@ -1243,12 +1232,14 @@ script:
   # Script executed when the timer is ringing, to repeat the timer finished sound.
   - id: enable_repeat_one
     then:
+      # Turn on the repeat mode and pause for 500 ms between playlist items/repeats
       - media_player.repeat_one:
           id: external_media_player
           announcement: true
-      # Turn on the repeat mode and pause for 500 ms between playlist items/repeats
-      - lambda: |-
-            id(external_media_player)->set_playlist_delay_ms(1, 500);
+      - speaker_source.set_playlist_delay:
+          id: external_media_player
+          pipeline: announcement
+          delay: 500ms
 
   # Script execute when the timer is done ringing, to disable repeat mode.
   - id: disable_repeat
@@ -1257,8 +1248,10 @@ script:
       - media_player.repeat_off:
           id: external_media_player
           announcement: true
-      - lambda: |-
-            id(external_media_player)->set_playlist_delay_ms(1, 0);
+      - speaker_source.set_playlist_delay:
+          id: external_media_player
+          pipeline: announcement
+          delay: 0ms
 
   # Script executed when we want to play sounds on the device.
   - id: play_sound
@@ -1277,7 +1270,7 @@ script:
           if ( (id(external_media_player).state != media_player::MediaPlayerState::MEDIA_PLAYER_STATE_ANNOUNCING ) || priority) {
             id(external_media_player)
               ->make_call()
-              .set_media_url("file://" + sound_file)
+              .set_media_url("audio-file://" + sound_file)
               .set_announcement(true)
               .perform();
           }
@@ -1286,11 +1279,11 @@ script:
   - id: fetch_first_active_timer
     then:
       - lambda: |
-          const auto timers = id(va).get_timers();
-          auto output_timer = timers.begin()->second;
-          for (auto &iterable_timer : timers) {
-            if (iterable_timer.second.is_active && iterable_timer.second.seconds_left <= output_timer.seconds_left) {
-              output_timer = iterable_timer.second;
+          const auto &timers = id(va).get_timers();
+          auto output_timer = *timers.begin();
+          for (const auto &timer : timers) {
+            if (timer.is_active && timer.seconds_left <= output_timer.seconds_left) {
+              output_timer = timer;
             }
           }
           id(first_active_timer) = output_timer;
@@ -1299,13 +1292,11 @@ script:
   - id: check_if_timers_active
     then:
       - lambda: |
-          const auto timers = id(va).get_timers();
+          const auto &timers = id(va).get_timers();
           bool output = false;
-          if (timers.size() > 0) {
-            for (auto &iterable_timer : timers) {
-              if(iterable_timer.second.is_active) {
-                output = true;
-              }
+          for (const auto &timer : timers) {
+            if (timer.is_active) {
+              output = true;
             }
           }
           id(is_timer_active) = output;
@@ -1320,7 +1311,6 @@ script:
           condition:
             media_player.is_announcing:
               id: external_media_player
-          timeout: 5s
       - delay: 1s
       # Enable stop wake word
       - if:
@@ -1343,32 +1333,31 @@ script:
       - lambda: |-
           id(publish_current_time).execute();
           // Check alarm
-          if (id(alarm_on).state && id(alarm_time).has_state()) {
-            // Get the stored alarm time from the sensor
-            auto set_alarm_time = id(alarm_time).state;
-            if (set_alarm_time.length() == 5 &&
-              isdigit(set_alarm_time[0]) && isdigit(set_alarm_time[1]) &&
-              isdigit(set_alarm_time[3]) && isdigit(set_alarm_time[4])) {
-              auto alarm_hour = std::stoi(set_alarm_time.substr(0, 2));
-              auto alarm_minute = std::stoi(set_alarm_time.substr(3, 2));
+          if (id(alarm_on).state) {
+            auto alarm_dt = id(alarm_time).state_as_esptime();
+            auto time_now = id(homeassistant_time).now();
 
-              // Trigger action if current time matches alarm time
-              auto time_now = id(homeassistant_time).now();
-              if (time_now.hour == alarm_hour && time_now.minute == alarm_minute) {
-                auto action = id(alarm_action).current_option();
-                if (action == "Play sound") {
-                  id(timer_ringing).turn_on();
-                } else if (action == "Send event") {
-                  id(send_alarm_event).execute();
-                } else if (action == "Sound and event") {
-                  id(timer_ringing).turn_on();
-                  id(send_alarm_event).execute();
-                } 
+            if (time_now.hour == alarm_dt.hour && time_now.minute == alarm_dt.minute) {
+              auto action = id(alarm_action).current_option();
+              if (action == "Play sound") {
+                id(timer_ringing).turn_on();
+              } else if (action == "Send event") {
+                id(send_alarm_event).execute();
+              } else if (action == "Sound and event") {
+                id(timer_ringing).turn_on();
+                id(send_alarm_event).execute();
               }
-            } else {
-              ESP_LOGW("alarm", "Incorrect alarm time setting");
             }
           }
+
+  - id: send_wake_word_event
+    parameters:
+      wake_word: string
+    then:
+      - homeassistant.event:
+          event: esphome.wake_word_detected
+          data:
+            wake_word: !lambda return wake_word;
   - id: send_alarm_event
     then:
       - homeassistant.event:
@@ -1472,34 +1461,51 @@ speaker:
 
 sendspin:
   id: sendspin_hub
-  task_stack_in_psram: true
-  kalman_process_error: 0.01
+  task_stack_in_psram: false
+
+http_request:
+# Uncomment this, if you have problems with text-to-speech because of Home Assistant HTTPS internal URL
+#   verify_ssl: false
+  buffer_size_rx: 2048  # Reduces CPU load when streaming audio
+
+audio_file:
+  - id: center_button_press_sound
+    file: ${center_button_press_sound_file}
+  - id: center_button_double_press_sound
+    file: ${center_button_double_press_sound_file}
+  - id: center_button_triple_press_sound
+    file: ${center_button_triple_press_sound_file}
+  - id: center_button_long_press_sound
+    file: ${center_button_long_press_sound_file}
+  - id: factory_reset_initiated_sound
+    file: ${factory_reset_initiated_sound_file}
+  - id: factory_reset_cancelled_sound
+    file: ${factory_reset_cancelled_sound_file}
+  - id: factory_reset_confirmed_sound
+    file: ${factory_reset_confirmed_sound_file}
+  - id: mute_switch_on_sound
+    file: ${mute_switch_on_sound_file}
+  - id: mute_switch_off_sound
+    file: ${mute_switch_off_sound_file}
+  - id: timer_finished_sound
+    file: ${timer_finished_sound_file}
+  - id: wake_word_triggered_sound
+    file: ${wake_word_triggered_sound_file}
+  - id: error_cloud_expired
+    file: ${error_cloud_expired_sound_file}
 
 media_source:
-  - platform: sendspin
-    id: sendspin_source
+  - platform: audio_file
+    id: audio_file_announcement_source
   - platform: http_request
-    id: http_source
+    id: http_announcement_source
+    buffer_size: 250000
+  - platform: http_request
+    id: http_media_source
     buffer_size: 500000
-  - platform: file
-    id: file_source
-    files:
-      - id: factory_reset_initiated_sound
-        file: ${factory_reset_initiated_sound_file}
-      - id: factory_reset_cancelled_sound
-        file: ${factory_reset_cancelled_sound_file}
-      - id: factory_reset_confirmed_sound
-        file: ${factory_reset_confirmed_sound_file}
-      - id: mute_switch_on_sound
-        file: ${mute_switch_on_sound_file}
-      - id: mute_switch_off_sound
-        file: ${mute_switch_off_sound_file}
-      - id: timer_finished_sound
-        file: ${timer_finished_sound_file}
-      - id: wake_word_triggered_sound
-        file: ${wake_word_triggered_sound_file}
-      - id: error_cloud_expired
-        file: ${error_cloud_expired_sound_file}
+  - platform: sendspin
+    id: sendspin_media_source
+    fixed_delay: 480 microseconds  # The AIC3204 DAC used, as configured, on the VPE delays audio by 480 microseconds
 
 media_player:
   - platform: sendspin
@@ -1507,23 +1513,25 @@ media_player:
   - platform: speaker_source
     id: external_media_player
     name: Media Player
-    announcement_speaker: announcement_resampling_speaker
-    media_speaker: media_resampling_speaker
     announcement_pipeline:
       format: FLAC     # FLAC is the least processor intensive codec
       num_channels: 1  # Stereo audio is unnecessary for announcements
       sample_rate: 48000
+      speaker: announcement_resampling_speaker
+      sources:
+        - audio_file_announcement_source
+        - http_announcement_source
     media_pipeline:
       format: FLAC     # FLAC is the least processor intensive codec
       num_channels: 2
       sample_rate: 48000
+      speaker: media_resampling_speaker
+      sources:
+        - http_media_source
+        - sendspin_media_source
     volume_increment: 0.05
     volume_min: 0.4
     volume_max: 0.85
-    sources:
-      - file_source
-      - http_source
-      - sendspin_source
     on_mute:
       - script.execute: control_leds_volume_changed
     on_unmute:
@@ -1612,42 +1620,18 @@ external_components:
       - respeaker_lite
     refresh: 0s
   - source:
-      # https://github.com/esphome/esphome/pull/12253
+      # https://github.com/esphome/esphome/pull/14933
       type: git
-      url: https://github.com/esphome/esphome
-      ref: 7f34908569650e5a8b8c83e6bf89fea561218880
-    components: [mixer]
-  - source:
-      # https://github.com/esphome/esphome/pull/12254
-      type: git
-      url: https://github.com/esphome/esphome
-      ref: 6006b896a691ad38d8045ac67564c168973d1a1d
-    components: [resampler]
-  - source:
-      # https://github.com/esphome/esphome/pull/12256
-      type: git
-      url: https://github.com/esphome/esphome
-      ref: 9148832ea4e54907bad71a24d4ced1ce6c862433
-    components: [audio]
-  - source:
-      # https://github.com/esphome/esphome/pull/12258
-      type: git
-      url: https://github.com/esphome/esphome
-      ref: bff22983a390352360796f8e1363127e0cd1f898
-    components: [media_player]
-  - source:
-      # https://github.com/esphome/esphome/pull/12284
-      type: git
-      url: https://github.com/esphome/esphome
-      ref: a6c0a861a014e64c67d46115eba8e5370777b80a
-    components: [mdns, sendspin]
+      url: https://github.com/kahrendt/esphome
+      ref: 890e33f99af2c2ea15dc74c3ec4cf32d25203526
+    components: [const, media_source, sendspin]
   - source:
       # https://github.com/esphome/esphome/pull/12429
       type: git
       url: https://github.com/esphome/esphome
-      ref: 928204066ce0082404573ea1c6a0b58aeebbd7c6
+      ref: ff8ce89556748509d7ee8724e12d9d43d3c8c1e8
     refresh: 0s
-    components: [file, http_request, media_source, speaker_source]
+    components: [http_request]
 
 audio_dac:
   - platform: aic3204
@@ -1682,6 +1666,9 @@ micro_wake_word:
         condition:
           switch.is_off: mic_mute_switch
         then:
+          - script.execute:
+              id: send_wake_word_event
+              wake_word: !lambda return wake_word;
           # If a timer is ringing: Stop it, do not start the voice assistant (We can stop timer from voice!)
           - if:
               condition:
@@ -1749,6 +1736,7 @@ select:
 
   - platform: template
     name: "Wake word sensitivity"
+    id: wake_word_sensitivity
     optimistic: true
     initial_option: Slightly sensitive
     restore_value: true
