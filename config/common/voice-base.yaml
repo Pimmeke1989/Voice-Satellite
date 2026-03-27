@@ -1358,14 +1358,6 @@ http_request:
   buffer_size_rx: 2048  # Reduces CPU load when streaming audio
 
 audio_file:
-  - id: center_button_press_sound
-    file: ${center_button_press_sound_file}
-  - id: center_button_double_press_sound
-    file: ${center_button_double_press_sound_file}
-  - id: center_button_triple_press_sound
-    file: ${center_button_triple_press_sound_file}
-  - id: center_button_long_press_sound
-    file: ${center_button_long_press_sound_file}
   - id: factory_reset_initiated_sound
     file: ${factory_reset_initiated_sound_file}
   - id: factory_reset_cancelled_sound
