@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LumiTone S1 — LED Effect Tester</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.development.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #root { height: 100%; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
+      background: #0a0a12;
+      color: #c8c8e0;
+    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #111120; }
+    ::-webkit-scrollbar-thumb { background: #2a2a4a; border-radius: 3px; }
+    textarea { resize: none; }
+    button:not(:disabled) { cursor: pointer; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback } = React;
+
+// ============================================================
+//  ESPHome Runtime — Color class & operator helpers
+// ============================================================
+
+class Color {
+  constructor(r = 0, g = 0, b = 0) {
+    this.r = Math.max(0, Math.min(255, r | 0));
+    this.g = Math.max(0, Math.min(255, g | 0));
+    this.b = Math.max(0, Math.min(255, b | 0));
+  }
+  static fromHSV(h, s, v) {
+    // h 0-360, s/v 0-255
+    h = ((h % 360) + 360) % 360;
+    const hh = h / 60, i = Math.floor(hh), f = hh - i;
+    const sv = s / 255, vv = v / 255;
+    const p = vv * (1 - sv), q = vv * (1 - sv * f), t = vv * (1 - sv * (1 - f));
+    let rr, gg, bb;
+    switch (i % 6) {
+      case 0: rr=vv; gg=t;  bb=p;  break;
+      case 1: rr=q;  gg=vv; bb=p;  break;
+      case 2: rr=p;  gg=vv; bb=t;  break;
+      case 3: rr=p;  gg=q;  bb=vv; break;
+      case 4: rr=t;  gg=p;  bb=vv; break;
+      default:rr=vv; gg=p;  bb=q;  break;
+    }
+    return new Color(rr * 255, gg * 255, bb * 255);
+  }
+}
+
+// Operator helpers — exposed to the lambda sandbox
+function __mul(a, b) {
+  if (a instanceof Color && typeof b === 'number') {
+    return new Color((a.r * b / 255), (a.g * b / 255), (a.b * b / 255));
+  }
+  if (typeof a === 'number' && b instanceof Color) {
+    return new Color((b.r * a / 255), (b.g * a / 255), (b.b * a / 255));
+  }
+  return a * b;
+}
+function __add(a, b) {
+  if (a instanceof Color && b instanceof Color)
+    return new Color(Math.min(255, a.r + b.r), Math.min(255, a.g + b.g), Math.min(255, a.b + b.b));
+  return a + b;
+}
+function __sub(a, b) {
+  if (a instanceof Color && b instanceof Color)
+    return new Color(Math.max(0, a.r - b.r), Math.max(0, a.g - b.g), Math.max(0, a.b - b.b));
+  return a - b;
+}
+// random() / esp_random() → integer 0 .. 2^31-1  (mirrors C RAND_MAX)
+function __random() { return Math.random() * 2147483647 | 0; }
+
+// ============================================================
+//  Transpiler  (C++ ESPHome lambda → JavaScript)
+// ============================================================
+
+function extractLambdaBody(raw) {
+  // Try to extract from YAML addressable_lambda block
+  const m = raw.match(/lambda:\s*\|-?\s*\n([\s\S]+?)(?=\n[ \t]*[\w-]+:|$)/);
+  if (m) {
+    const lines = m[1].split('\n');
+    const indent = (lines.find(l => l.trim()) || '').match(/^(\s*)/)[1].length;
+    return lines.map(l => l.slice(indent)).join('\n');
+  }
+  return raw;
+}
+
+function extractUpdateInterval(raw) {
+  const m = raw.match(/update_interval:\s*(\d+)ms/);
+  return m ? parseInt(m[1]) : 30;
+}
+
+// State-machine multiplication replacer:
+// Rewrites  a * b  →  __mul(a, b)
+// Handles parenthesized left/right operands, skips comments & strings.
+function replaceMultiplications(src) {
+  let out = '';
+  let i = 0, n = src.length;
+
+  while (i < n) {
+    // single-line comment
+    if (src[i] === '/' && src[i+1] === '/') {
+      while (i < n && src[i] !== '\n') out += src[i++];
+      continue;
+    }
+    // block comment
+    if (src[i] === '/' && src[i+1] === '*') {
+      out += src[i++]; out += src[i++];
+      while (i < n && !(src[i] === '*' && src[i+1] === '/')) out += src[i++];
+      if (i < n) { out += src[i++]; out += src[i++]; }
+      continue;
+    }
+    // string literal
+    if (src[i] === '"') {
+      out += src[i++];
+      while (i < n && src[i] !== '"') {
+        if (src[i] === '\\') out += src[i++];
+        out += src[i++];
+      }
+      if (i < n) out += src[i++];
+      continue;
+    }
+    // multiplication operator? (not *=, not **)
+    if (src[i] === '*' && src[i+1] !== '=' && src[i+1] !== '*' && (i === 0 || src[i-1] !== '*')) {
+      let j = i + 1;
+      while (j < n && /[ \t\n]/.test(src[j])) j++;
+
+      // --- right operand ---
+      let rightOp = '';
+      if (j < n && src[j] === '(') {
+        let depth = 0;
+        while (j < n) {
+          if (src[j] === '(') depth++;
+          else if (src[j] === ')') depth--;
+          rightOp += src[j++];
+          if (depth === 0) break;
+        }
+      } else if (j < n && /[\w$]/.test(src[j])) {
+        while (j < n && /[\w$.]/.test(src[j])) rightOp += src[j++];
+        // also consume array subscript: identifier[expr]
+        if (j < n && src[j] === '[') {
+          let depth = 0;
+          while (j < n) {
+            if (src[j] === '[') depth++;
+            else if (src[j] === ']') depth--;
+            rightOp += src[j++];
+            if (depth === 0) break;
+          }
+        }
+      }
+
+      if (!rightOp) { out += src[i++]; continue; }
+
+      // --- left operand (scan backwards in `out`) ---
+      let k = out.length - 1;
+      while (k >= 0 && /[ \t\n]/.test(out[k])) k--;
+      let leftOp = '';
+
+      if (k >= 0 && out[k] === ']') {
+        // array subscript on the left: identifier[expr]
+        let depth = 0, end = k;
+        while (k >= 0) {
+          if (out[k] === ']') depth++;
+          else if (out[k] === '[') { depth--; if (depth === 0) break; }
+          k--;
+        }
+        // consume identifier before [
+        k--;
+        while (k >= 0 && /[\w$]/.test(out[k])) k--;
+        leftOp = out.slice(k + 1, end + 1);
+        out = out.slice(0, k + 1);
+      } else if (k >= 0 && out[k] === ')') {
+        let depth = 0, end = k;
+        while (k >= 0) {
+          if (out[k] === ')') depth++;
+          else if (out[k] === '(') { depth--; if (depth === 0) break; }
+          k--;
+        }
+        // Also consume identifier/method chain before '(' e.g. obj.method(...)
+        k--;
+        while (k >= 0 && /[\w$.]/.test(out[k])) k--;
+        leftOp = out.slice(k + 1, end + 1);
+        out = out.slice(0, k + 1);
+      } else if (k >= 0 && /[\w$]/.test(out[k])) {
+        let end = k;
+        while (k >= 0 && /[\w$]/.test(out[k])) k--;
+        leftOp = out.slice(k + 1, end + 1);
+        out = out.slice(0, k + 1);
+      } else {
+        out += src[i++]; continue;
+      }
+
+      out += `__mul(${leftOp}, ${rightOp})`;
+      i = j;
+      continue;
+    }
+
+    out += src[i++];
+  }
+  return out;
+}
+
+const C_TYPES = 'uint8_t|uint16_t|uint32_t|uint64_t|int8_t|int16_t|int32_t|int64_t|size_t|float|double|int|unsigned|char|bool|long|short';
+
+function transpile(rawCode) {
+  const lambdaBody = rawCode.includes('addressable_lambda:') || rawCode.includes('lambda:')
+    ? extractLambdaBody(rawCode)
+    : rawCode;
+
+  let code = lambdaBody;
+
+  // 1a. Extract static ARRAY variables  (e.g. static uint8_t fade[20];)
+  //     These are reference types in JS — no need to save back, just init once.
+  const staticArrayRx = /\bstatic\s+(?:const\s+)?(?:unsigned\s+)?(?:\w+)\s+(\w+)\s*\[(\d+)\]\s*;/g;
+  let m;
+  while ((m = staticArrayRx.exec(code)) !== null) {
+    // handled inline in the replacement below
+  }
+
+  // 1b. Extract static SCALAR variables (no [ after the name)
+  const staticVars = [];
+  const staticScalarRx = /\bstatic\s+(?:const\s+)?(?:unsigned\s+)?(?:\w+)\s+(\w+)(?!\s*\[)\s*(?:=\s*([^;]+?))?\s*;/g;
+  while ((m = staticScalarRx.exec(code)) !== null) {
+    staticVars.push({ name: m[1], init: (m[2] || '0').trim() });
+  }
+
+  // 2a. Replace static ARRAY declarations → init once in __state, then bind by reference
+  code = code.replace(
+    /\bstatic\s+(?:const\s+)?(?:unsigned\s+)?(?:\w+)\s+(\w+)\s*\[(\d+)\]\s*;/g,
+    (_, name, size) =>
+      `if (!('${name}' in __state)) __state['${name}'] = new Array(${size}).fill(0);\nlet ${name} = __state['${name}'];`
+  );
+
+  // 2b. Replace static SCALAR declarations → read from __state
+  code = code.replace(
+    /\bstatic\s+(?:const\s+)?(?:unsigned\s+)?(?:\w+)\s+(\w+)(?!\s*\[)\s*(?:=\s*([^;]+?))?\s*;/g,
+    (_, name) => `let ${name} = __state['${name}'];`
+  );
+
+  // 3a. id(xxx).current_values → __currentValues  (ESPHome entity state)
+  code = code.replace(/\bid\s*\([^)]*\)\.current_values/g, '__currentValues');
+
+  // 3b. 'auto' type keyword → let
+  code = code.replace(/\bauto\s+(\w+)/g, 'let $1');
+
+  // 3c. const Color varname(args) → const varname = new Color(args)
+  //     Use pattern that handles one level of nested parens (e.g. method calls in args)
+  const colorCtorPat = `([^()]*(?:\\([^()]*\\)[^()]*)*)`;
+  code = code.replace(new RegExp(`\\bconst\\s+Color\\s+(\\w+)\\s*\\(${colorCtorPat}\\)\\s*;`, 'g'),
+    (_, name, args) => `const ${name} = new Color(${args});`);
+  // Color varname(args) (without const)
+  code = code.replace(new RegExp(`\\bColor\\s+(\\w+)\\s*\\(${colorCtorPat}\\)\\s*;`, 'g'),
+    (_, name, args) => `let ${name} = new Color(${args});`);
+
+  // 4. const TYPE var → const var
+  code = code.replace(new RegExp(`\\bconst\\s+(?:${C_TYPES})\\s+(\\w+)`, 'g'), 'const $1');
+
+  // 5a. TYPE var[SIZE] → let var = new Array(SIZE).fill(0)  (local arrays)
+  code = code.replace(
+    new RegExp(`\\b(?:${C_TYPES})\\s+(\\w+)\\s*\\[(\\d+)\\]`, 'g'),
+    (_, name, size) => `let ${name} = new Array(${size}).fill(0)`
+  );
+
+  // 5b. TYPE var → let var  (non-const scalars)
+  code = code.replace(new RegExp(`\\b(?:${C_TYPES})\\s+(\\w+)`, 'g'), 'let $1');
+
+  // 6. Fix "const let" → "const" (artifact of step 4+5)
+  code = code.replace(/\bconst\s+let\b/g, 'const');
+
+  // 7. Remaining Color(...) → new Color(...)
+  code = code.replace(/(?<![a-zA-Z0-9_$])Color\s*\(/g, 'new Color(');
+  code = code.replace(/\bnew\s+new\s+Color/g, 'new Color');
+
+  // 8. Color.fromHSV stays as-is (static method call, no need to prefix new)
+
+  // 9. it.size() → leds.length  (must happen before it[ replacement)
+  code = code.replace(/\bit\.size\s*\(\)/g, 'leds.length');
+  // it[...] → leds[...]
+  code = code.replace(/\bit\[/g, 'leds[');
+
+  // 10. initial_run → __initialRun
+  code = code.replace(/\binitial_run\b/g, '__initialRun');
+
+  // 11. millis() → Math.floor(performance.now())
+  code = code.replace(/\bmillis\s*\(\)/g, 'Math.floor(performance.now())');
+  // 11b. random() / esp_random() → __random()
+  code = code.replace(/\besp_random\s*\(\)/g, '__random()');
+  code = code.replace(/\brandom\s*\(\)/g, '__random()');
+
+  // 12. C++ casts → remove
+  //   style A: (uint8_t)expr
+  code = code.replace(new RegExp(`\\(\\s*(?:${C_TYPES})\\s*\\)`, 'g'), '');
+  //   style B: uint8_t(expr)  — functional cast, replace type name with nothing (keep parens)
+  code = code.replace(new RegExp(`\\b(?:${C_TYPES})\\s*(?=\\()`, 'g'), '');
+
+  // 13. Replace * with __mul (state-machine)
+  code = replaceMultiplications(code);
+
+  // 14. Build state-init prefix and state-save suffix
+  const stateInit = staticVars.map(v =>
+    `if (!('${v.name}' in __state)) __state['${v.name}'] = ${v.init};`
+  ).join('\n');
+  const stateSave = staticVars.map(v =>
+    `__state['${v.name}'] = ${v.name};`
+  ).join('\n');
+
+  return { code: `${stateInit}\n${code}\n${stateSave}`, staticVars };
+}
+
+// ============================================================
+//  Default code
+// ============================================================
+
+const DEFAULT_CODE =
+`- addressable_lambda:
+    name: "Breathe"
+    update_interval: 30ms
+    lambda: |-
+      static uint8_t step = 0;
+      static bool down = false;
+      const uint8_t LEDS = 20;
+      // === INSTELBAAR ===
+      const Color wait_color(255, 255, 255);
+      const uint8_t MIN_BRI = 40;
+      const uint8_t MAX_BRI = 180;
+      const uint8_t STEPS = 28;
+      // ==================
+      if (initial_run) {
+        step = 0;
+        down = false;
+      }
+      uint8_t bri = MIN_BRI +
+        (uint8_t)((MAX_BRI - MIN_BRI) * step / STEPS);
+      for (int i = 0; i < LEDS; i++) {
+        it[i] = wait_color * bri;
+      }
+      if (down) {
+        if (step > 0) step--;
+        else down = false;
+      } else {
+        if (step < STEPS) step++;
+        else down = true;
+      }`;
+
+// ============================================================
+//  LEDStrip canvas component
+// ============================================================
+
+function LEDStrip({ leds, numLeds }) {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+
+    ctx.fillStyle = '#0a0a12';
+    ctx.fillRect(0, 0, W, H);
+
+    const n = Math.max(1, numLeds);
+    const pad = 20, gap = 3;
+    const available = W - 2 * pad;
+    const ledW = Math.max(3, Math.min(44, (available - (n - 1) * gap) / n));
+    const totalW = n * ledW + (n - 1) * gap;
+    const startX = (W - totalW) / 2;
+    const ledH = Math.min(ledW, 40);
+    const y = (H - ledH) / 2;
+
+    // PCB strip base
+    ctx.fillStyle = '#0f0f22';
+    ctx.strokeStyle = '#1e1e3a';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(startX - 10, y - 8, totalW + 20, ledH + 16, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    // LED pads (copper colour)
+    for (let i = 0; i < n; i++) {
+      const x = startX + i * (ledW + gap);
+      ctx.fillStyle = '#1a1a30';
+      ctx.beginPath();
+      ctx.roundRect(x - 1, y - 1, ledW + 2, ledH + 2, 4);
+      ctx.fill();
+    }
+
+    // LEDs
+    for (let i = 0; i < n; i++) {
+      const led = leds[i] || new Color(0, 0, 0);
+      const x = startX + i * (ledW + gap);
+      const cssColor = `rgb(${led.r},${led.g},${led.b})`;
+      const brightness = (led.r + led.g + led.b) / 3;
+
+      if (brightness > 8) {
+        const spread = Math.max(10, ledW * 0.8) * (brightness / 255);
+        ctx.shadowColor = cssColor;
+        ctx.shadowBlur = spread;
+      } else {
+        ctx.shadowBlur = 0;
+      }
+
+      ctx.fillStyle = brightness > 4 ? cssColor : '#111128';
+      ctx.beginPath();
+      ctx.roundRect(x, y, ledW, ledH, 3);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    // Connector nubs
+    ctx.fillStyle = '#252540';
+    const nubW = 8, nubH = 12;
+    ctx.beginPath();
+    ctx.roundRect(startX - 18, y + (ledH - nubH) / 2, nubW, nubH, 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.roundRect(startX + totalW + 10, y + (ledH - nubH) / 2, nubW, nubH, 2);
+    ctx.fill();
+  }, [leds, numLeds]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={960}
+      height={90}
+      style={{ width: '100%', height: '90px', display: 'block', borderRadius: '10px' }}
+    />
+  );
+}
+
+// ============================================================
+//  Main App
+// ============================================================
+
+const BTN = (extra) => ({
+  border: 'none',
+  borderRadius: 7,
+  padding: '8px 16px',
+  fontSize: 13,
+  fontWeight: 600,
+  transition: 'background 0.15s, opacity 0.15s',
+  ...extra,
+});
+
+function App() {
+  const [code, setCode] = useState(DEFAULT_CODE);
+  const [numLeds, setNumLeds] = useState(20);
+  const [leds, setLeds] = useState(() => Array(20).fill(null).map(() => new Color()));
+  const [isRunning, setIsRunning] = useState(false);
+  const [error, setError] = useState('');
+  const [intervalMs, setIntervalMs] = useState(30);
+  const [fps, setFps] = useState(0);
+  const [showTranspiled, setShowTranspiled] = useState(false);
+  const [transpiledCode, setTranspiledCode] = useState('');
+  const [ledColor, setLedColor] = useState('#ffffff');
+
+  const stateRef        = useRef({});
+  const initialRunRef   = useRef(true);
+  const lambdaFnRef     = useRef(null);
+  const isRunningRef    = useRef(false);
+  const animFrameRef    = useRef(null);
+  const numLedsRef      = useRef(20);
+  const intervalMsRef   = useRef(30);
+  const lastFrameRef    = useRef(0);
+  const fpsRef          = useRef({ frames: 0, last: 0 });
+  const ledColorRef     = useRef('#ffffff');
+
+  useEffect(() => { numLedsRef.current = numLeds; }, [numLeds]);
+  useEffect(() => { intervalMsRef.current = intervalMs; }, [intervalMs]);
+  useEffect(() => { ledColorRef.current = ledColor; }, [ledColor]);
+
+  // ---- compile ----
+  const compile = useCallback(() => {
+    setError('');
+    const detected = extractUpdateInterval(code);
+    setIntervalMs(detected);
+    intervalMsRef.current = detected;
+
+    try {
+      const { code: transpiled } = transpile(code);
+      setTranspiledCode(transpiled);
+      const fn = new Function(
+        'leds', '__initialRun', '__state',
+        '__mul', '__add', '__sub',
+        'Color', 'Math', 'performance',
+        '__currentValues', '__random',
+        transpiled
+      );
+      lambdaFnRef.current = fn;
+      stateRef.current = {};
+      initialRunRef.current = true;
+      return true;
+    } catch (e) {
+      setError('Compile error: ' + e.message);
+      return false;
+    }
+  }, [code]);
+
+  // ---- animation loop ----
+  const loop = useCallback((ts) => {
+    if (!isRunningRef.current) return;
+
+    if (ts - lastFrameRef.current < intervalMsRef.current) {
+      animFrameRef.current = requestAnimationFrame(loop);
+      return;
+    }
+    lastFrameRef.current = ts;
+
+    // fps counter
+    fpsRef.current.frames++;
+    if (ts - fpsRef.current.last >= 1000) {
+      setFps(fpsRef.current.frames);
+      fpsRef.current.frames = 0;
+      fpsRef.current.last = ts;
+    }
+
+    const n = numLedsRef.current;
+    const newLeds = Array.from({ length: n }, () => new Color());
+    try {
+      // Build __currentValues from the user-selected LED color
+      const hex = ledColorRef.current;
+      const cr = parseInt(hex.slice(1,3),16) / 255;
+      const cg = parseInt(hex.slice(3,5),16) / 255;
+      const cb = parseInt(hex.slice(5,7),16) / 255;
+      const __currentValues = {
+        get_red:   () => cr,
+        get_green: () => cg,
+        get_blue:  () => cb,
+        get_white: () => 0,
+      };
+      lambdaFnRef.current(
+        newLeds, initialRunRef.current, stateRef.current,
+        __mul, __add, __sub,
+        Color, Math, performance,
+        __currentValues, __random
+      );
+      initialRunRef.current = false;
+      setLeds([...newLeds]);
+    } catch (e) {
+      setError('Runtime error: ' + e.message);
+      isRunningRef.current = false;
+      setIsRunning(false);
+      return;
+    }
+
+    animFrameRef.current = requestAnimationFrame(loop);
+  }, []);
+
+  // ---- controls ----
+  const handleStart = () => {
+    if (!compile()) return;
+    isRunningRef.current = true;
+    setIsRunning(true);
+    lastFrameRef.current = 0;
+    fpsRef.current = { frames: 0, last: 0 };
+    animFrameRef.current = requestAnimationFrame(loop);
+  };
+
+  const handleStop = () => {
+    isRunningRef.current = false;
+    setIsRunning(false);
+    if (animFrameRef.current) { cancelAnimationFrame(animFrameRef.current); animFrameRef.current = null; }
+  };
+
+  const handleReset = () => {
+    handleStop();
+    stateRef.current = {};
+    initialRunRef.current = true;
+    setLeds(Array(numLeds).fill(null).map(() => new Color()));
+    setFps(0);
+    setError('');
+  };
+
+  const handleNumLeds = (val) => {
+    const n = Math.max(1, Math.min(300, parseInt(val) || 1));
+    setNumLeds(n);
+    numLedsRef.current = n;
+    if (!isRunning) setLeds(Array(n).fill(null).map(() => new Color()));
+  };
+
+  // ---- styles ----
+  const S = {
+    root: {
+      display: 'flex', flexDirection: 'column', height: '100vh',
+      background: '#0a0a12', color: '#c8c8e0', overflow: 'hidden',
+    },
+    header: {
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      padding: '12px 20px', borderBottom: '1px solid #1a1a2e',
+      background: '#0d0d1a', flexShrink: 0,
+    },
+    previewPanel: {
+      padding: '14px 20px', background: '#0d0d1a',
+      borderBottom: '1px solid #1a1a2e', flexShrink: 0,
+    },
+    body: {
+      display: 'flex', flex: 1, overflow: 'hidden', gap: 0,
+    },
+    editorPanel: {
+      flex: '0 0 62%', display: 'flex', flexDirection: 'column',
+      borderRight: '1px solid #1a1a2e', overflow: 'hidden',
+    },
+    panelHeader: {
+      padding: '10px 16px', background: '#0f0f1e',
+      borderBottom: '1px solid #1a1a2e', fontSize: 11,
+      fontWeight: 600, letterSpacing: '0.08em', color: '#5555aa',
+      textTransform: 'uppercase', flexShrink: 0,
+    },
+    textarea: {
+      flex: 1, background: '#0c0c1a', color: '#d0d0ee',
+      border: 'none', outline: 'none', padding: '14px 16px',
+      fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+      fontSize: 13, lineHeight: 1.6, tabSize: 2, overflow: 'auto',
+    },
+    controlPanel: {
+      flex: 1, display: 'flex', flexDirection: 'column',
+      overflow: 'hidden',
+    },
+    controls: {
+      padding: '16px', display: 'flex', flexDirection: 'column',
+      gap: 14, overflow: 'auto', flex: 1,
+    },
+    inputGroup: {
+      display: 'flex', flexDirection: 'column', gap: 5,
+    },
+    label: { fontSize: 11, fontWeight: 600, color: '#5555aa', letterSpacing: '0.07em', textTransform: 'uppercase' },
+    input: {
+      background: '#111124', border: '1px solid #222244', borderRadius: 7,
+      color: '#c8c8e0', padding: '7px 11px', fontSize: 14, outline: 'none',
+      width: '100%',
+    },
+    btnRow: { display: 'flex', gap: 8 },
+    errorBox: {
+      background: '#1a0a0a', border: '1px solid #4a1111', borderRadius: 7,
+      padding: '10px 12px', fontSize: 12, color: '#ff6b6b',
+      fontFamily: 'monospace', lineHeight: 1.5, wordBreak: 'break-all',
+    },
+    transpiledBox: {
+      background: '#0c0c1a', border: '1px solid #1a1a3a', borderRadius: 7,
+      padding: '10px 12px', fontSize: 11.5, color: '#7878aa',
+      fontFamily: 'monospace', lineHeight: 1.5, overflowX: 'auto',
+      maxHeight: 260, overflowY: 'auto', whiteSpace: 'pre',
+    },
+    badge: {
+      display: 'inline-flex', alignItems: 'center', gap: 5,
+      background: '#0d2d1a', color: '#4ade80', border: '1px solid #1a4a2a',
+      borderRadius: 20, padding: '3px 10px', fontSize: 12, fontWeight: 600,
+    },
+  };
+
+  return (
+    <div style={S.root}>
+
+      {/* ── Header ── */}
+      <header style={S.header}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
+            <circle cx="13" cy="13" r="12" fill="#1a0a2e" stroke="#5522aa" strokeWidth="1.5"/>
+            <circle cx="13" cy="13" r="5" fill="#7744dd"/>
+            <path d="M13 3 L13 6M13 20 L13 23M3 13 L6 13M20 13 L23 13" stroke="#9966ff" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+          <span style={{ fontSize: 17, fontWeight: 700, color: '#a78bfa', letterSpacing: '-0.3px' }}>LumiTone S1</span>
+          <span style={{ color: '#2a2a4a', margin: '0 2px' }}>|</span>
+          <span style={{ color: '#5555aa', fontSize: 13 }}>LED Effect Tester</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {isRunning && <span style={S.badge}>▶ {fps} fps</span>}
+          <span style={{ color: '#333355', fontSize: 12 }}>ESPHome addressable_lambda simulator</span>
+        </div>
+      </header>
+
+      {/* ── LED Preview ── */}
+      <div style={S.previewPanel}>
+        <div style={{ marginBottom: 8, fontSize: 11, fontWeight: 600, color: '#3a3a6a', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          Preview — {numLeds} LEDs
+        </div>
+        <LEDStrip leds={leds} numLeds={numLeds} />
+      </div>
+
+      {/* ── Body ── */}
+      <div style={S.body}>
+
+        {/* Code editor */}
+        <div style={S.editorPanel}>
+          <div style={S.panelHeader}>ESPHome Code</div>
+          <textarea
+            style={S.textarea}
+            value={code}
+            onChange={e => setCode(e.target.value)}
+            spellCheck={false}
+            placeholder="Plak hier je addressable_lambda: blok of de ruwe C++ lambda body..."
+          />
+        </div>
+
+        {/* Controls */}
+        <div style={S.controlPanel}>
+          <div style={S.panelHeader}>Instellingen &amp; Controls</div>
+          <div style={S.controls}>
+
+            {/* Playback buttons */}
+            <div style={S.btnRow}>
+              <button
+                onClick={handleStart}
+                disabled={isRunning}
+                style={BTN({ background: '#4c1d95', color: '#e0d0ff', flex: 1 })}
+              >▶ Run</button>
+              <button
+                onClick={handleStop}
+                disabled={!isRunning}
+                style={BTN({ background: '#1a1a2e', color: '#c8c8e0', flex: 1, border: '1px solid #2a2a4e' })}
+              >■ Stop</button>
+              <button
+                onClick={handleReset}
+                style={BTN({ background: '#1a1a2e', color: '#c8c8e0', border: '1px solid #2a2a4e' })}
+              >↺</button>
+            </div>
+
+            {/* LED count */}
+            <div style={S.inputGroup}>
+              <label style={S.label}>Aantal LEDs</label>
+              <input
+                type="number"
+                value={numLeds}
+                min={1} max={300}
+                onChange={e => handleNumLeds(e.target.value)}
+                style={S.input}
+              />
+            </div>
+
+            {/* LED base color */}
+            <div style={S.inputGroup}>
+              <label style={S.label}>LED Basiskleur <span style={{ color: '#3a3a6a', fontWeight: 400, fontSize: 10 }}>(id(...).current_values)</span></label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="color"
+                  value={ledColor}
+                  onChange={e => { setLedColor(e.target.value); ledColorRef.current = e.target.value; }}
+                  style={{
+                    width: 44, height: 34, padding: 2, border: '1px solid #222244',
+                    borderRadius: 7, background: '#111124', cursor: 'pointer',
+                  }}
+                />
+                <div style={{
+                  flex: 1, height: 34, borderRadius: 7,
+                  background: ledColor,
+                  border: '1px solid #222244',
+                  boxShadow: `0 0 12px ${ledColor}66`,
+                  transition: 'background 0.1s, box-shadow 0.1s',
+                }} />
+                <span style={{ color: '#5555aa', fontSize: 12, fontFamily: 'monospace', minWidth: 54 }}>{ledColor}</span>
+              </div>
+            </div>
+
+            {/* Update interval */}
+            <div style={S.inputGroup}>
+              <label style={S.label}>Update interval (ms)</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="number"
+                  value={intervalMs}
+                  min={1} max={5000}
+                  onChange={e => {
+                    const v = Math.max(1, parseInt(e.target.value) || 30);
+                    setIntervalMs(v);
+                    intervalMsRef.current = v;
+                  }}
+                  style={{ ...S.input, width: 90 }}
+                />
+                <input
+                  type="range"
+                  min={1} max={200}
+                  value={Math.min(intervalMs, 200)}
+                  onChange={e => {
+                    const v = parseInt(e.target.value);
+                    setIntervalMs(v);
+                    intervalMsRef.current = v;
+                  }}
+                  style={{ flex: 1, accentColor: '#7744dd' }}
+                />
+              </div>
+            </div>
+
+            {/* Divider */}
+            <div style={{ borderTop: '1px solid #1a1a2e' }} />
+
+            {/* Status */}
+            <div style={{ fontSize: 12, color: '#3a3a6a', lineHeight: 1.6 }}>
+              <div>Status: <span style={{ color: isRunning ? '#4ade80' : '#666688' }}>{isRunning ? 'Running' : 'Stopped'}</span></div>
+              <div>Frame interval: <span style={{ color: '#a78bfa' }}>{intervalMs}ms</span> ({(1000/intervalMs).toFixed(1)} fps target)</div>
+            </div>
+
+            {/* Error */}
+            {error && <div style={S.errorBox}>{error}</div>}
+
+            {/* Transpiled code toggle */}
+            <button
+              onClick={() => {
+                if (!showTranspiled && !transpiledCode) {
+                  try { const { code: t } = transpile(code); setTranspiledCode(t); } catch(e) {}
+                }
+                setShowTranspiled(v => !v);
+              }}
+              style={BTN({
+                background: '#111124', color: '#5555aa',
+                border: '1px solid #222244', fontSize: 12, textAlign: 'left',
+              })}
+            >
+              {showTranspiled ? '▲' : '▼'} Transpiled JavaScript
+            </button>
+            {showTranspiled && (
+              <pre style={S.transpiledBox}>{transpiledCode || '(nog niet gecompileerd)'}</pre>
+            )}
+
+            {/* Help */}
+            <div style={{ fontSize: 11, color: '#2a2a4a', lineHeight: 1.7, borderTop: '1px solid #1a1a2e', paddingTop: 10 }}>
+              <div style={{ color: '#3a3a6a', fontWeight: 600, marginBottom: 4 }}>Ondersteunde ESPHome API</div>
+              <div>✓ <code style={{ color: '#555577' }}>it[i] = Color(r,g,b)</code></div>
+              <div>✓ <code style={{ color: '#555577' }}>Color * brightness</code></div>
+              <div>✓ <code style={{ color: '#555577' }}>initial_run</code></div>
+              <div>✓ <code style={{ color: '#555577' }}>static</code> variabelen</div>
+              <div>✓ <code style={{ color: '#555577' }}>millis()</code></div>
+              <div>✓ <code style={{ color: '#555577' }}>Color.fromHSV(h, s, v)</code></div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+</script>
+</body>
+</html>
