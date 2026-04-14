@@ -1,16 +1,16 @@
 {
   "name": "LumiTone S1",
-  "version": "2026.4.0",
+  "version": "2026.4.1",
   "home_assistant_domain": "esphome",
   "new_install_prompt_erase": false,
   "builds": [
     {
       "chipFamily": "ESP32-S3",
       "ota": {
-        "md5": "52acbc0c6b3105022654f75abc246392",
-        "path": "https://github.com/Pimmeke1989/Voice-Satellite/releases/download/2026.4.0/lumitone-ota.bin",
-        "release_url": "https://github.com/Pimmeke1989/Voice-Satellite/releases/tag/2026.4.0",
-        "summary": "2026.4.0 Beta - Espresiff + crash fix!"
+        "md5": "584ba9eb797685cbf29dc2d0471c9c52",
+        "path": "https://github.com/Pimmeke1989/Voice-Satellite/releases/download/2026.4.1/lumitone-ota.bin",
+        "release_url": "https://github.com/Pimmeke1989/Voice-Satellite/releases/tag/2026.4.1",
+        "summary": "2026.4.0 Alpha - TTS Fix Test"
       }
     }
   ]
