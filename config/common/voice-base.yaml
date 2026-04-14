@@ -72,6 +72,8 @@ esp32:
   framework:
     type: esp-idf
     version: recommended
+    components:
+      - espressif/esp-nn==1.1.2 # TODO remove this when MWW stops failing
     sdkconfig_options:
       CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
       CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
