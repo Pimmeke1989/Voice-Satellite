@@ -29,7 +29,7 @@ substitutions:
 esphome:
   project: 
     name: pimmeke1989.LumiTone S1
-    version: 2026.3.1
+    version: 2026.4.0
   name: lumitone-s1
   friendly_name: LumiTone S1
   name_add_mac_suffix: true
@@ -1352,7 +1352,7 @@ speaker:
 
 sendspin:
   id: sendspin_hub
-  task_stack_in_psram: true
+  task_stack_in_psram: false
 
 http_request:
 # Uncomment this, if you have problems with text-to-speech because of Home Assistant HTTPS internal URL
