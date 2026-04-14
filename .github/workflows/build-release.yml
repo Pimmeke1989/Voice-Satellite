@@ -22,7 +22,7 @@ jobs:
 
       - name: Install ESPHome
         # Versie vastgezet op .4 om compatibiliteit met de externe componenten te garanderen
-        run: pip install esphome==2026.3.3
+        run: pip install esphome==2026.4.0b2
 
       - name: Create Dummy Secrets
         run: |
