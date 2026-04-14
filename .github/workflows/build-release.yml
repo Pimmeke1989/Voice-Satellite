@@ -21,8 +21,8 @@ jobs:
           python-version: '3.11'
 
       - name: Install ESPHome
-        # Versie vastgezet op beta 2026.4.0b2: bevat IDF 5.5.4 (fix audio crash) + esp-nn fix (PR #15628)
-        run: pip install esphome==2026.4.0b2
+        # Versie vastgezet op .4 om compatibiliteit met de externe componenten te garanderen
+        run: pip install esphome==2026.3.3
 
       - name: Create Dummy Secrets
         run: |
