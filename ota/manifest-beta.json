@@ -7,10 +7,10 @@
     {
       "chipFamily": "ESP32-S3",
       "ota": {
-        "md5": "83b78791c44e485c802480ef843f2b13",
+        "md5": "52acbc0c6b3105022654f75abc246392",
         "path": "https://github.com/Pimmeke1989/Voice-Satellite/releases/download/2026.4.0/lumitone-ota.bin",
         "release_url": "https://github.com/Pimmeke1989/Voice-Satellite/releases/tag/2026.4.0",
-        "summary": "2026.4.0 Beta - Espresiff fix!"
+        "summary": "2026.4.0 Beta - Espresiff + crash fix!"
       }
     }
   ]
