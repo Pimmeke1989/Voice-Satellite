@@ -37,7 +37,7 @@ esphome:
   name: koala-satellite
   friendly_name: Koala Satellite
   name_add_mac_suffix: true
-  min_version: 2026.5.0
+  min_version: 2026.6.0
   on_boot:
     - priority: 375
       then:
@@ -76,8 +76,6 @@ esp32:
   framework:
     type: esp-idf
     version: recommended
-    components:
-      - espressif/esp-nn==1.1.2 # TODO remove this when MWW stops failing
     sdkconfig_options:
       CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
       CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
@@ -332,6 +330,15 @@ switch:
     entity_category: config
     optimistic: true
     restore_mode: RESTORE_DEFAULT_ON
+  # Disable physical controls switch
+  - platform: template
+    id: disable_buttons
+    name: Disable physical controls
+    icon: "mdi:button-pointer"
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    disabled_by_default: true
   # Internal switch to track when a timer is ringing on the device.
   - platform: template
     id: timer_ringing
@@ -402,9 +409,17 @@ binary_sensor:
       inverted: true
     name: "User button"
     on_press:
-      - script.execute: control_leds
+      - if:
+          condition:
+            switch.is_off: disable_buttons
+          then:
+            - script.execute: control_leds
     on_release:
-      - script.execute: control_leds
+      - if:
+          condition:
+            switch.is_off: disable_buttons
+          then:
+            - script.execute: control_leds
       # If a factory reset is requested, factory reset on release
       - if:
           condition:
@@ -425,7 +440,7 @@ binary_sensor:
         then:
           - if:
               condition:
-                lambda: return !id(init_in_progress) && !id(color_changed) && !id(group_volume_changed);
+                lambda: return !id(init_in_progress) && !id(color_changed) && !id(group_volume_changed) && !id(disable_buttons).state;
               then:
                 - if:
                     condition:
@@ -482,7 +497,7 @@ binary_sensor:
         then:
           - if:
               condition:
-                lambda: return !id(init_in_progress) && !id(color_changed) && !id(group_volume_changed);
+                lambda: return !id(init_in_progress) && !id(color_changed) && !id(group_volume_changed) && !id(disable_buttons).state;
               then:
                 - if:
                     condition:
@@ -507,7 +522,7 @@ binary_sensor:
         then:
           - if:
               condition:
-                lambda: return !id(init_in_progress) && !id(color_changed) && !id(group_volume_changed);
+                lambda: return !id(init_in_progress) && !id(color_changed) && !id(group_volume_changed) && !id(disable_buttons).state;
               then:
                 - if:
                     condition:
@@ -527,7 +542,7 @@ binary_sensor:
         then:
           - if:
               condition:
-                lambda: return !id(init_in_progress) && !id(color_changed) && !id(group_volume_changed);
+                lambda: return !id(init_in_progress) && !id(color_changed) && !id(group_volume_changed) && !id(disable_buttons).state;
               then:
                 - if:
                     condition:
@@ -904,46 +919,54 @@ sensor:
       - lambda: id(dial_touched) = true;
       - if:
           condition:
-            binary_sensor.is_off: user_button
+              - switch.is_off: disable_buttons
           then:
-            - script.execute:
-                id: control_volume
-                increase_volume: true
-          else:
             - if:
                 condition:
-                  media_player.is_playing:
-                    id: sendspin_group_media_player
+                    - binary_sensor.is_off: user_button
                 then:
                   - script.execute:
-                      id: control_group_volume
+                      id: control_volume
                       increase_volume: true
                 else:
-                  - script.execute:
-                      id: control_hue
-                      increase_hue: true
+                  - if:
+                      condition:
+                        media_player.is_playing:
+                          id: sendspin_group_media_player
+                      then:
+                        - script.execute:
+                            id: control_group_volume
+                            increase_volume: true
+                      else:
+                        - script.execute:
+                            id: control_hue
+                            increase_hue: true
     on_anticlockwise:
       - lambda: id(dial_touched) = true;
       - if:
           condition:
-            binary_sensor.is_off: user_button
+              - switch.is_off: disable_buttons
           then:
-            - script.execute:
-                id: control_volume
-                increase_volume: false
-          else:
             - if:
                 condition:
-                  media_player.is_playing:
-                    id: sendspin_group_media_player
+                    - binary_sensor.is_off: user_button
                 then:
                   - script.execute:
-                      id: control_group_volume
+                      id: control_volume
                       increase_volume: false
                 else:
-                  - script.execute:
-                      id: control_hue
-                      increase_hue: false
+                  - if:
+                      condition:
+                        media_player.is_playing:
+                          id: sendspin_group_media_player
+                      then:
+                        - script.execute:
+                            id: control_group_volume
+                            increase_volume: false
+                      else:
+                        - script.execute:
+                            id: control_hue
+                            increase_hue: false
   - platform: template
     id: next_timer
     name: "Next timer"
@@ -1707,7 +1730,7 @@ micro_wake_word:
     gain_factor: 4
   stop_after_detection: false
   models:
-    - model: https://github.com/kahrendt/microWakeWord/releases/download/okay_nabu_20241226.3/okay_nabu.json
+    - model: https://github.com/OHF-Voice/micro-wake-word/releases/download/okay_nabu_20241226.3/okay_nabu.json
       # probability_cutoff: 0.8
       id: okay_nabu
     - model: https://raw.githubusercontent.com/formatBCE/Respeaker-Lite-ESPHome-integration/refs/heads/main/microwakeword/models/v2/kenobi.json
@@ -1716,7 +1739,7 @@ micro_wake_word:
       id: hey_jarvis
     - model: hey_mycroft
       id: hey_mycroft
-    - model: https://github.com/kahrendt/microWakeWord/releases/download/stop/stop.json
+    - model: https://github.com/OHF-Voice/micro-wake-word/releases/download/stop/stop.json
       id: stop
       internal: true
   vad:
