@@ -29,11 +29,11 @@ substitutions:
 esphome:
   project: 
     name: pimmeke1989.LumiTone S1
-    version: 2026.4.0
+    version: 2026.6.0
   name: lumitone-s1
   friendly_name: LumiTone S1
   name_add_mac_suffix: true
-  min_version: 2026.3.0
+  min_version: 2026.6.0
   on_boot:
     - priority: 375
       then:
@@ -202,8 +202,6 @@ globals:
     restore_value: no
     initial_value: 'false'
 
-
-
 # Time sync from Home Assistant
 time:
   - platform: homeassistant
@@ -317,6 +315,7 @@ switch:
     entity_category: config
     optimistic: true
     restore_mode: RESTORE_DEFAULT_ON
+
   # Internal switch to track when a timer is ringing on the device.
   - platform: template
     id: timer_ringing
@@ -416,6 +415,30 @@ light:
         to: 19
         reversed: True
     effects:
+      - addressable_lambda:
+          name: "Thinking"
+          update_interval: 30ms
+          lambda: |-
+            static uint8_t brightness_step = 0;
+            static bool brightness_decreasing = true;
+            static uint8_t brightness_step_number = 10;
+            if (initial_run) {
+              brightness_step = 0;
+              brightness_decreasing = true;
+            }
+            auto light_color = id(led_ring).current_values;
+            Color color(light_color.get_red() * 255, light_color.get_green() * 255, light_color.get_blue() * 255);
+            for (uint8_t i = 0; i < 20; i++) {
+                it[i] = color * uint8_t(255/brightness_step_number*(brightness_step_number-brightness_step));
+            }
+            if (brightness_decreasing) {
+              brightness_step++;
+            } else {
+              brightness_step--;
+            }
+            if (brightness_step == 0 || brightness_step == brightness_step_number) {
+              brightness_decreasing = !brightness_decreasing;
+            }
       - addressable_lambda:
           name: "Respeaker startup failed"
           lambda: |-
@@ -590,168 +613,6 @@ light:
               // Groen = Hitte gedeeld door 3 (dit zorgt voor de Oranje tint)
               // Blauw = 0 (we willen geen koud licht)
               it[i] = Color(new_heat, new_heat / 3, 0);
-            }
-      
-      # 1. WAITING - Idle pulse (like breathing - assistant is alive but resting)
-      - addressable_lambda:
-          name: "Breathe"
-          update_interval: 30ms
-          lambda: |-
-            static uint8_t step = 0;
-            static bool down = false;
-
-            const uint8_t LEDS = 20;
-
-            // === INSTELBAAR ===
-            const Color wait_color(255, 255, 255);
-            const uint8_t MIN_BRI = 40;
-            const uint8_t MAX_BRI = 180;
-            const uint8_t STEPS = 28;
-            // ==================
-
-            if (initial_run) {
-              step = 0;
-              down = false;
-            }
-
-            uint8_t bri = MIN_BRI +
-              (uint8_t)((MAX_BRI - MIN_BRI) * step / STEPS);
-
-            for (int i = 0; i < LEDS; i++) {
-              it[i] = wait_color * bri;
-            }
-
-            if (down) {
-              if (step > 0) step--;
-              else down = false;
-            } else {
-              if (step < STEPS) step++;
-              else down = true;
-            }
-
-      # 2. LISTENING - Audio waveform (center responds to "hearing")
-      - addressable_lambda:
-          name: "Scanner"
-          update_interval: 35ms
-          lambda: |-
-            static int pos = 0;
-            static int dir = 1;
-            static uint8_t fade[20];
-
-            const uint8_t LEDS = 20;
-
-            // === INSTELBAAR ===
-            const Color listen_color(20, 80, 170);
-            const uint8_t FADE_STEP = 18;
-            // ==================
-
-            if (initial_run) {
-              pos = 0;
-              dir = 1;
-              for (int i = 0; i < LEDS; i++) fade[i] = 0;
-            }
-
-            // Fade buffer
-            for (int i = 0; i < LEDS; i++) {
-              if (fade[i] > FADE_STEP) fade[i] -= FADE_STEP;
-              else fade[i] = 0;
-              it[i] = listen_color * fade[i];
-            }
-
-            int left  = pos;
-            int right = LEDS - 1 - pos;
-
-            fade[left]  = 255;
-            fade[right] = 255;
-
-            pos += dir;
-            if (pos >= LEDS / 2) dir = -1;
-            if (pos <= 0) dir = 1;
-
-      # 3. THINKING - Processing dots (like a loading bar)
-      - addressable_lambda:
-          name: "Heartbeat"
-          update_interval: 20ms
-          lambda: |-
-            static uint16_t frame = 0;
-            static uint8_t level = 60;
-
-            const uint8_t LEDS = 20;
-
-            // === INSTELBAAR ===
-            const Color think_color(255, 140, 30);
-            const uint8_t BASE_GLOW = 60;
-            const uint8_t FADE_STEP = 8;
-            // ==================
-
-            const uint16_t FRAMES = 60; // ~60 BPM
-            frame = (frame + 1) % FRAMES;
-
-            uint8_t target = BASE_GLOW;
-
-            // Lub-dub patroon
-            if (frame < 4)        target = 255;  // lub
-            else if (frame < 8)   target = 140;
-            else if (frame < 12)  target = BASE_GLOW;
-            else if (frame < 16)  target = 200;  // dub
-            else                  target = BASE_GLOW;
-
-            if (level < target) {
-              level += FADE_STEP;
-              if (level > target) level = target;
-            } else if (level > target) {
-              level -= FADE_STEP;
-              if (level < target) level = target;
-            }
-
-            for (int i = 0; i < LEDS; i++) {
-              it[i] = think_color * level;
-            }
-
-      # 4. REPLYING - Voice output pulse (speaking from center)
-      - addressable_lambda:
-          name: "Gravcenter"
-          update_interval: 35ms
-          lambda: |-
-            static int width = 0;
-            static bool expanding = true;
-            static uint8_t fade[20];
-
-            const uint8_t LEDS = 20;
-
-            // === INSTELBAAR ===
-            const Color reply_color(0, 200, 90);
-            const uint8_t FADE_STEP = 30;   // sneller leeg
-            // ==================
-
-            const int center = LEDS / 2;
-
-            if (initial_run) {
-              width = 0;
-              expanding = true;
-              for (int i = 0; i < LEDS; i++) fade[i] = 0;
-            }
-
-            // Fade buffer
-            for (int i = 0; i < LEDS; i++) {
-              if (fade[i] > FADE_STEP) fade[i] -= FADE_STEP;
-              else fade[i] = 0;
-              it[i] = reply_color * fade[i];
-            }
-
-            for (int i = 0; i <= width; i++) {
-              int l = center - 1 - i;
-              int r = center + i;
-              fade[l] = 255;
-              fade[r] = 255;
-            }
-
-            if (expanding) {
-              width++;
-              if (width >= center) expanding = false;
-            } else {
-              width--;
-              if (width <= 0) expanding = true;
             }
 
   # User facing LED ring. Remapping of the internal LEDs. 
@@ -942,7 +803,7 @@ script:
           effect: "Twinkle"
 
   # Script executed during initialization
-  # Green Twinkle if Wifi is connected, Blue Twinkle
+  # Blue Twinkle if Wifi is connected, Else rainbow
   - id: control_leds_init_state
     then:
       - if:
@@ -951,19 +812,15 @@ script:
           then:
             - light.turn_on:
                 brightness: 50%
-                red: 0%
-                green: 100%
-                blue: 20%
-                id: voice_assistant_leds
-                effect: "Twinkle"
-          else:
-            - light.turn_on:
-                brightness: 50%
                 red: 9%
                 green: 73%
                 blue: 95%
                 id: voice_assistant_leds
                 effect: "Twinkle"
+          else:
+            - light.turn_on:
+                id: voice_assistant_leds
+                effect: "Rainbow"
 
   # Script executed when the device has no connection to Home Assistant
   # Red Twinkle (This will be visible during HA updates for example)
@@ -1005,24 +862,28 @@ script:
           else:
             - light.turn_off: voice_assistant_leds
 
-  # NEW - Script for Waiting after Wake Word
-  # NEW - Uses Scan Slow
+  # Script for Waiting after Wake Word
   - id: control_leds_voice_assistant_waiting_for_command_phase_scan
     then:
       - light.turn_on:
           id: voice_assistant_leds
           # Deze regels zijn noodzakelijk om te synchroniseren met jouw instelling
           brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.5f );
-          effect: "Breathe"
+          red: !lambda return id(led_ring).current_values.get_red();
+          green: !lambda return id(led_ring).current_values.get_green();
+          blue: !lambda return id(led_ring).current_values.get_blue();
+          effect: "Scan Slow"
 
-  # NEW - Script for Listening to command
-  # NEW - Uses Scan Fast
+  # Script for Listening to command
   - id: control_leds_voice_assistant_listening_for_command_phase_scan
     then:
       - light.turn_on:
           id: voice_assistant_leds
-          brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
-          effect: "Scanner"
+          brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.5f );
+          red: !lambda return id(led_ring).current_values.get_red();
+          green: !lambda return id(led_ring).current_values.get_green();
+          blue: !lambda return id(led_ring).current_values.get_blue();
+          effect: "Scan Fast"
 
   # Script executed when the voice assistant is thinking to a command
   # The spin stops and the 2 LEDs that are currently on and blinking indicating the commend is being processed.
@@ -1031,16 +892,18 @@ script:
       - light.turn_on:
           brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
           id: voice_assistant_leds
-          effect: "Heartbeat"
+          effect: "Thinking"
 
-  # NEW - Script for Replying to command
-  # NEW - Uses Gravcenter
+  # Script for Replying to command
   - id: control_leds_voice_assistant_replying_phase_scan
     then:
       - light.turn_on:
           id: voice_assistant_leds
-          brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.2f );
-          effect: "Gravcenter"
+          brightness: !lambda return max( id(led_ring).current_values.get_brightness() , 0.5f );
+          red: 100%
+          green: 77%
+          blue: 56%
+          effect: "Scan Fast"
 
   # Script executed when the voice assistant is in error
   # Fast Red Pulse
@@ -1121,7 +984,6 @@ script:
   # Script executed when the timer is ringing, to repeat the timer finished sound.
   - id: enable_repeat_one
     then:
-      # Turn on the repeat mode and pause for 500 ms between playlist items/repeats
       - media_player.repeat_one:
           id: external_media_player
           announcement: true
@@ -1352,11 +1214,6 @@ sendspin:
   id: sendspin_hub
   task_stack_in_psram: false
 
-http_request:
-# Uncomment this, if you have problems with text-to-speech because of Home Assistant HTTPS internal URL
-#   verify_ssl: false
-  buffer_size_rx: 2048  # Reduces CPU load when streaming audio
-
 audio_file:
   - id: factory_reset_initiated_sound
     file: ${factory_reset_initiated_sound_file}
@@ -1378,10 +1235,10 @@ audio_file:
 media_source:
   - platform: audio_file
     id: audio_file_announcement_source
-  - platform: http_request
+  - platform: audio_http
     id: http_announcement_source
     buffer_size: 250000
-  - platform: http_request
+  - platform: audio_http
     id: http_media_source
     buffer_size: 500000
   - platform: sendspin
@@ -1500,19 +1357,6 @@ external_components:
     components: 
       - respeaker_lite
     refresh: 0s
-  - source:
-      # https://github.com/esphome/esphome/pull/14933
-      type: git
-      url: https://github.com/kahrendt/esphome
-      ref: 7a6cf5c8472b7e2fa18ee0fc314f66a80d249e32
-    components: [const, media_source, sendspin]
-  - source:
-      # https://github.com/esphome/esphome/pull/12429
-      type: git
-      url: https://github.com/esphome/esphome
-      ref: ff8ce89556748509d7ee8724e12d9d43d3c8c1e8
-    refresh: 0s
-    components: [http_request]
 
 audio_dac:
   - platform: aic3204
@@ -1527,7 +1371,7 @@ micro_wake_word:
     gain_factor: 4
   stop_after_detection: false
   models:
-    - model: https://github.com/kahrendt/microWakeWord/releases/download/okay_nabu_20241226.3/okay_nabu.json
+    - model: https://github.com/OHF-Voice/micro-wake-word/releases/download/okay_nabu_20241226.3/okay_nabu.json
       # probability_cutoff: 0.8
       id: okay_nabu
     - model: https://raw.githubusercontent.com/TaterTotterson/microWakeWords/refs/heads/main/microWakeWords/ok_lumi.json
@@ -1536,7 +1380,7 @@ micro_wake_word:
       id: hey_jarvis
     - model: hey_mycroft
       id: hey_mycroft
-    - model: https://github.com/kahrendt/microWakeWord/releases/download/stop/stop.json
+    - model: https://github.com/OHF-Voice/micro-wake-word/releases/download/stop/stop.json
       id: stop
       internal: true
   vad:
@@ -1617,7 +1461,6 @@ select:
 
   - platform: template
     name: "Wake word sensitivity"
-    id: wake_word_sensitivity
     optimistic: true
     initial_option: Slightly sensitive
     restore_value: true
