@@ -36,14 +36,19 @@ jobs:
         # '|| true' is verwijderd: als de compile faalt, stopt de actie direct
         run: esphome compile config/voice-factory.yaml
 
-      - name: Find and Prepare Files
+            - name: Find and Prepare Files
         run: |
           echo "We zoeken naar de gemaakte bestanden..."
           FACTORY_PATH=$(find . -name "firmware.factory.bin" -type f | head -n 1)
-          OTA_PATH=$(find . -name "firmware.bin" -type f | head -n 1)
+          OTA_PATH=$(find . -name "firmware.ota.bin" -type f | head -n 1)
 
           if [ -z "$FACTORY_PATH" ]; then
             echo "ERROR: Kon firmware.factory.bin niet vinden!"
+            exit 1
+          fi
+
+          if [ -z "$OTA_PATH" ]; then
+            echo "ERROR: Kon firmware.ota.bin niet vinden!"
             exit 1
           fi
 
