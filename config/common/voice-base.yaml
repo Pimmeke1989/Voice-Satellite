@@ -403,7 +403,7 @@ light:
     reset_high: 0us
     max_refresh_rate: 15ms
     num_leds: 20
-    rgb_order: GRB
+    channel_colors: GRB
     rmt_symbols: 96
     default_transition_length: 0ms
     color_correct: [70%, 70%, 70%]
@@ -636,25 +636,27 @@ light:
     on_turn_on:
       - light.turn_on:
           id: led_ring
-          effect: !lambda return id(default_idle_effect).state;
+          effect: !lambda return std::string(id(default_idle_effect).current_option());
       - script.execute: control_leds
     
     on_turn_off:
       - script.execute: control_leds
 
     #Effects shown in HA
+    # Placeholder-effecten: de echte animatie draait op voice_assistant_leds.
+    # update_interval op 1s, omdat 0s door ESPHome naar 1ms wordt omgezet.
     effects:
       - lambda:
           name: "Rainbow"
-          update_interval: 0s
+          update_interval: 1s
           lambda: return;
       - lambda:
           name: "Twinkle"
-          update_interval: 0s
+          update_interval: 1s
           lambda: return;
       - lambda:
           name: "Candle"
-          update_interval: 0s
+          update_interval: 1s
           lambda: return;
 
   - platform: esp32_rmt_led_strip
@@ -662,7 +664,7 @@ light:
     name: LED Respeaker onboard
     disabled_by_default: true
     internal: false
-    rgb_order: GRB
+    channel_colors: GRB
     pin: GPIO1
     num_leds: 1
     rmt_symbols: 48
@@ -687,7 +689,7 @@ light:
     name: LED ESP onboard
     disabled_by_default: true
     internal: false
-    rgb_order: GRB
+    channel_colors: GRB
     pin: GPIO48
     num_leds: 1
     rmt_symbols: 48
@@ -1094,7 +1096,7 @@ script:
             auto time_now = id(homeassistant_time).now();
 
             if (time_now.hour == alarm_dt.hour && time_now.minute == alarm_dt.minute) {
-              auto action = id(alarm_action).current_option();
+              std::string action = id(alarm_action).current_option();
               if (action == "Play sound") {
                 id(timer_ringing).turn_on();
               } else if (action == "Send event") {
