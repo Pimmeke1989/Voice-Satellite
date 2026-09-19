@@ -1580,6 +1580,10 @@ voice_assistant:
   on_stt_vad_end:
     - lambda: id(voice_assistant_phase) = ${voice_assist_thinking_phase_id};
     - script.execute: control_leds
+  # Fix for Thinking mode, STT_VAD_END isn't used anymore    
+  on_intent_start:
+    - lambda: id(voice_assistant_phase) = ${voice_assist_thinking_phase_id};
+    - script.execute: control_leds
   on_intent_progress:
     - if:
         condition:
@@ -1608,7 +1612,6 @@ voice_assistant:
     - script.execute:
         id: send_stt_text_event
         stt_text: !lambda 'return x;'
-    
   # When the voice assistant ends ...
   on_end:
     - wait_until:
