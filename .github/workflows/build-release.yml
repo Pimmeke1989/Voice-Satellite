@@ -36,7 +36,7 @@ jobs:
         # '|| true' is verwijderd: als de compile faalt, stopt de actie direct
         run: esphome compile config/voice-factory.yaml
 
-            - name: Find and Prepare Files
+      - name: Find and Prepare Files
         run: |
           echo "We zoeken naar de gemaakte bestanden..."
           FACTORY_PATH=$(find . -name "firmware.factory.bin" -type f | head -n 1)
