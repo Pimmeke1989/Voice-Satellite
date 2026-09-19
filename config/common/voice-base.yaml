@@ -29,11 +29,11 @@ substitutions:
 esphome:
   project: 
     name: pimmeke1989.LumiTone S1
-    version: 2026.6.0
+    version: 2026.9.0
   name: lumitone-s1
   friendly_name: LumiTone S1
   name_add_mac_suffix: true
-  min_version: 2026.6.0
+  min_version: 2026.9.0
   on_boot:
     - priority: 375
       then:
@@ -394,7 +394,13 @@ light:
   - platform: esp32_rmt_led_strip
     id: leds_internal
     pin: GPIO3
-    chipset: WS2812
+    #chipset: WS2812
+    bit0_high: 300ns
+    bit0_low: 975ns
+    bit1_high: 650ns
+    bit1_low: 650ns
+    reset_low: 300us
+    reset_high: 0us
     max_refresh_rate: 15ms
     num_leds: 20
     rgb_order: GRB
@@ -1242,6 +1248,7 @@ media_source:
     buffer_size: 500000
   - platform: sendspin
     id: sendspin_media_source
+    codecs: [FLAC, PCM]  # Prefer FLAC for Sendspin
     fixed_delay: 480 microseconds  # The AIC3204 DAC used, as configured, on the VPE delays audio by 480 microseconds
 
 media_player:
